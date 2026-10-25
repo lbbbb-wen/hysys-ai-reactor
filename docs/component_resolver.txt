@@ -1,0 +1,41 @@
+组分解析器验证报告  2026-10-25 21:24:48
+==================================================================
+[1] Ethylbenzene 别名解析（canonical -> E-Benzene）
+  请求 Ethylbenzene -> 实得 E-Benzene(C8H10, MW=106.166)  [PASS]
+
+[2] 误配注入测试：alias 表 Ethylbenzene -> Styrene
+  报错（符合预期）：[resolve_component] 组分误配：请求 Ethylbenzene(C8H10, 106.17) 实得 Styrene(C8H8, 104.15)
+  [PASS]
+
+[3] 乙苯脱氢全链路（equilibrium 预期，转化率 >30%）
+  parser 选型：equilibrium
+  [PASS] 选型 equilibrium
+  status=ok converged=True
+  [warning] 组分 'Ethylbenzene' 经别名解析为 'E-Benzene'（C8H10, MW=106.17）
+  [warning] 检测到白名单外组分 ['Methane']，尝试移除
+  [warning] 反应 乙苯脱氢：反应相态按气相处理（Phase=Vapor）；液相体系需显式指定
+  [warning] 反应 乙苯脱氢：V15 COM 拒绝原生 Gibbs 源（写 0 读回非 0），已改用 HYSYS 内置 Gibbs 自由能数据在出口温度 650.0 °C 下推导 K=0.5643（定值 K，该温度下严格精确）
+    x[Ethylbenzene  ] = 0.277511
+    x[Hydrogen      ] = 0.361245
+    x[Styrene       ] = 0.361245
+  乙苯转化率 = 72.2%  [PASS]（要求 >30%，产物含 Styrene/H2）
+  case = C:\work\hysys-ai-reactor\cases\gen_20261025_212456_equilibrium.hsc
+
+[4] 回归：甲苯歧化（conversion）
+    x[Benzene   ] = 0.250000
+    x[Hydrogen  ] = 0.000000
+    x[Toluene   ] = 0.500000
+    x[m-Xylene  ] = 0.125000
+    x[o-Xylene  ] = 0.062500
+    x[p-Xylene  ] = 0.062500
+  converged=True  [PASS]（Toluene≈0.5, Benzene≈0.25）
+
+[5] 回归：SMR 710°C（equilibrium）
+    x[CO        ] = 0.045486
+    x[CO2       ] = 0.067338
+    x[H2O       ] = 0.384885
+    x[Hydrogen  ] = 0.405807
+    x[Methane   ] = 0.096485
+  converged=True duty=39.909205800846394 MW  [PASS]（CH4≈0.0965, duty>5MW）
+
+总体：ALL PASS

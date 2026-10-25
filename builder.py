@@ -148,8 +148,12 @@ def _set_base_component(case, rxn, comp_name, tag):
           % (comp_name, " | ".join(errors)))
 
 
-def _build_reactions(case, spec, outlet_t_c, warnings):
-    """按 spec["reactions"] 创建反应并挂到 ReactionSet；gibbs 型不建方程。"""
+def _build_reactions(case, spec, outlet_t_c, warnings, comp_map=None):
+    """按 spec["reactions"] 创建反应并挂到 ReactionSet；gibbs 型不建方程。
+
+    comp_map: canonical 名 -> HYSYS 实际组分名（别名解析结果），
+    用于翻译 stoichiometry 键与 basis_component。"""
+    comp_map = comp_map or {}
     if spec["reactor_type"] == "gibbs":
         if spec.get("reactions"):
             warnings.append("Gibbs Reactor 按自由能最小化计算，spec 中的"
@@ -176,7 +180,8 @@ def _build_reactions(case, spec, outlet_t_c, warnings):
         if rtype not in REACTION_TYPES:
             _fail(tag, "不支持的反应类型 %r（支持：%s）"
                   % (rtype, "/".join(REACTION_TYPES)))
-        stoich = rspec.get("stoichiometry") or {}
+        stoich = {comp_map.get(k, k): v
+                  for k, v in (rspec.get("stoichiometry") or {}).items()}
         if not stoich:
             _fail(tag, "stoichiometry 为空")
         rxn = core.com("%s：创建（%s）" % (tag, rtype),
@@ -214,7 +219,8 @@ def _build_reactions(case, spec, outlet_t_c, warnings):
                  lambda r=rxn: rs.ActiveReactions.Add(r))
 
         if rtype == "conversion":
-            basis = rspec.get("basis_component")
+            basis = comp_map.get(rspec.get("basis_component"),
+                                 rspec.get("basis_component"))
             conv = rspec.get("conversion")
             if basis is None or conv is None:
                 _fail(tag, "conversion 反应缺少 basis_component 或 conversion")
@@ -246,6 +252,11 @@ def validate_spec(spec):
     不允许进入 HYSYS 后再抛裸异常。
     """
     problems = []
+    rt = spec.get("reactor_type")
+    if rt is not None and rt not in REACTOR_OP_TYPES:
+        problems.append("反应器类型 %r 暂未实现建模（当前支持：%s）；"
+                        "cstr/pfr 需要动力学模型，后续版本再支持"
+                        % (rt, "/".join(sorted(REACTOR_OP_TYPES))))
     if not spec.get("components"):
         problems.append("组分列表（components）为空——需要进料/产物涉及"
                         "的所有 HYSYS 库组分名")
@@ -373,10 +384,26 @@ def _build_from_spec_impl(spec, holder):
     case = core.create_case(spec.get("property_package") or "Peng-Robinson",
                             save_as=case_path)
     holder["case"] = case
-    names = core.add_components(case, list(spec.get("components") or []))
+    # 别名解析：canonical 名 -> HYSYS Simulation Name（含分子量读回校验）
+    comp_records = []
+    names, comp_map = core.add_components_resolved(
+        case, list(spec.get("components") or []), records=comp_records)
+    for rec in comp_records:
+        if rec["requested"] != rec["actual"]:
+            warnings.append("组分 %r 经别名解析为 %r（%s, MW=%.2f）"
+                            % (rec["requested"], rec["actual"],
+                               rec["formula"], rec["mw"]))
+    # 白名单比较用实际（解析后）组分名
+    spec_actual = set(comp_map.values())
+    # spec 内所有组分引用（进料组成 / flow_basis）翻译为实际组分名
+    composition = {comp_map.get(k, k): v for k, v in composition.items()}
+    if (feed_spec.get("flow_basis") or "").startswith("component:"):
+        bcomp = feed_spec["flow_basis"].split(":", 1)[1]
+        feed_spec = dict(feed_spec,
+                         flow_basis="component:%s" % comp_map.get(bcomp, bcomp))
     # 组分白名单：case 组分集合必须严格等于 spec["components"]（顺序无关）。
     # 多余的先尝试移除，清不掉则 fail fast，不带病出结果。
-    extra = [n for n in names if n not in set(spec.get("components") or [])]
+    extra = [n for n in names if n not in spec_actual]
     if extra:
         warnings.append("检测到白名单外组分 %s，尝试移除" % extra)
         cl = core.com("白名单：获取组分列表",
@@ -394,14 +421,14 @@ def _build_from_spec_impl(spec, holder):
                      lambda: bm.EndBasisChange())
         names = tuple(core.com("白名单：读回组分名",
                                lambda: tuple(cl.Components.Names)))
-        still = [n for n in names if n not in set(spec["components"])]
+        still = [n for n in names if n not in spec_actual]
         if still:
             _fail("白名单", "无法清除白名单外组分 %s，拒绝生成 case" % still)
     flowsheet = core.com("获取 Flowsheet", lambda: case.Flowsheet)
 
     # --- 反应 ---
     reaction_set = _build_reactions(case, spec, outlet_spec.get("T_C"),
-                                    warnings)
+                                    warnings, comp_map)
     if reaction_set is not None:
         rxn_problems = _verify_reactions(case, spec)
         if rxn_problems:
@@ -517,8 +544,8 @@ def _build_from_spec_impl(spec, holder):
     fv = pv["molar_flow_kgmol_h"] or 0.0
     fl = pl["molar_flow_kgmol_h"] or 0.0
     total = fv + fl
-    # 非白名单组分只要携带流量即报错（防串味）
-    whitelist = set(spec.get("components") or [])
+    # 非白名单组分只要携带流量即报错（防串味）；白名单用实际组分名
+    whitelist = spec_actual
     for label, p, f in (("汽相出口", pv, fv), ("液相出口", pl, fl)):
         for comp, x in (p["composition_molfrac"] or {}).items():
             if comp not in whitelist and x is not None and x * f > 1e-9:
@@ -526,9 +553,10 @@ def _build_from_spec_impl(spec, holder):
                       % (label, comp, x))
     outlet_comp = {}
     if total > 0 and pv["composition_molfrac"] and pl["composition_molfrac"]:
-        for comp in spec["components"]:  # 只输出白名单组分
-            xv = pv["composition_molfrac"].get(comp, 0.0) or 0.0
-            xl = pl["composition_molfrac"].get(comp, 0.0) or 0.0
+        for comp in spec["components"]:  # 只输出白名单组分（按 canonical 名输出）
+            actual = comp_map.get(comp, comp)
+            xv = pv["composition_molfrac"].get(actual, 0.0) or 0.0
+            xl = pl["composition_molfrac"].get(actual, 0.0) or 0.0
             outlet_comp[comp] = (fv * xv + fl * xl) / total
 
     # 热负荷多路径容错：能量流股 HeatFlow 优先，反应器 HeatFlowValue 兜底；
@@ -557,6 +585,54 @@ def _build_from_spec_impl(spec, holder):
         warnings.append("热负荷不可用：所有读取路径均失败，duty=null")
     heat_duty_mw = duty / 1000.0 if duty is not None else None  # kJ/s -> MW
 
+    # --- 转化率：一律按基准组分摩尔流量 1 - F_out/F_in 计算 ---
+    # （不能用 1 - 出口摩尔分率：增摩尔反应中分率口径会高估转化率，
+    #   实测案例：乙苯脱氢分率口径得 0.722，摩尔流量口径得 0.566）
+    conversions = {}
+    feed_x = composition  # 已翻译为实际组分名
+    for i, rspec in enumerate(spec.get("reactions") or []):
+        rname = rspec.get("name") or "RXN-%d" % (i + 1)
+        stoich = {comp_map.get(k, k): v
+                  for k, v in (rspec.get("stoichiometry") or {}).items()}
+        if not stoich:
+            continue
+        basis = comp_map.get(rspec.get("basis_component"),
+                             rspec.get("basis_component"))
+        if not basis:
+            # equilibrium 等无显式基准：取第一个反应物（系数为负）
+            basis = next((c for c, v in stoich.items() if v < 0), None)
+        if not basis:
+            continue
+        f_in = (feed_x.get(basis) or 0.0) * molar_flow
+        if f_in <= 0:
+            warnings.append("反应 %s：基准组分 %s 进料流量为 0，转化率不可算"
+                            % (rname, basis))
+            continue
+        f_out = ((pv["composition_molfrac"] or {}).get(basis, 0.0) or 0.0) * fv \
+            + ((pl["composition_molfrac"] or {}).get(basis, 0.0) or 0.0) * fl
+        conversions[rname] = 1.0 - f_out / f_in
+
+        # 自检（单反应）：各组分出口摩尔流量应符合化学计量
+        # F_out_i = F_in_i + ν_i/ν_basis × (F_in_b - F_out_b)，偏差 >1% 告警
+        if len(spec.get("reactions") or []) == 1 and abs(f_in - f_out) > 1e-12:
+            nu_b = stoich[basis]
+            extent = (f_out - f_in) / nu_b  # ν_b < 0
+            for comp, nu in stoich.items():
+                if comp == basis:
+                    continue
+                f_in_i = (feed_x.get(comp) or 0.0) * molar_flow
+                pred = f_in_i + nu * extent
+                act = ((pv["composition_molfrac"] or {})
+                       .get(comp, 0.0) or 0.0) * fv \
+                    + ((pl["composition_molfrac"] or {})
+                       .get(comp, 0.0) or 0.0) * fl
+                denom = max(abs(pred), 1e-9)
+                if abs(act - pred) / denom > 0.01:
+                    warnings.append(
+                        "化学计量自检：%s 出口摩尔流量实测 %.4g 与理论 %.4g "
+                        "偏差 %.1f%% > 1%%（口径可能不一致）"
+                        % (comp, act, pred, abs(act - pred) / denom * 100))
+
     # --- 结果完整性断言：出口各物流组成合计 1.000±0.001、duty 有限 ---
     integrity = []
     for label, p in (("汽相出口", pv), ("液相出口", pl)):
@@ -583,5 +659,6 @@ def _build_from_spec_impl(spec, holder):
             "total_molar_flow_kgmol_h": molar_flow,
             "outlet": {"T_C": pv["T_C"], "P_bar": pv["P_bar"],
                        "composition_molfrac": outlet_comp},
+            "conversions": conversions,
             "heat_duty": heat_duty_mw, "converged": converged,
             "case_file": case_path, "warnings": warnings}

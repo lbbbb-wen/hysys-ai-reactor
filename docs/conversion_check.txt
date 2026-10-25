@@ -1,0 +1,35 @@
+转化率口径回归（摩尔流量基准）  2026-10-25 21:33:45
+==================================================================
+[a] 乙苯脱氢（equilibrium，620°C 进料 1.2 bar，出口 650°C）
+  converged=True  conversions={'乙苯脱氢': 0.5655446674435791}
+    x[Ethylbenzene  ] = 0.277511
+    x[Hydrogen      ] = 0.361245
+    x[Styrene       ] = 0.361245
+  转化率 = 0.5655  [PASS]（要求 0.566±0.006）
+  K(由组成反算) = 0.5643，HYSYS K = 0.5643
+  K 偏差 0.00%  [PASS]（要求 <1%）
+
+[b] 甲苯歧化（conversion 50%%，总摩尔数不变）
+  [warning] 检测到白名单外组分 ['Methane']，尝试移除
+  [warning] 未指定出口温度，反应器按绝热操作（热负荷=0）
+  converged=True  conversions={'甲苯歧化': 0.5}
+  转化率 = 0.5000  [PASS]（要求 0.500）
+
+[c] SMR 两工况 CH4 转化率（摩尔流量口径）
+  710°C [warning] 反应 Steam methane reforming：反应相态按气相处理（Phase=Vapor）；液相体系需显式指定
+  710°C [warning] 反应 Steam methane reforming：V15 COM 拒绝原生 Gibbs 源（写 0 读回非 0），已改用 HYSYS 内置 Gibbs 自由能数据在出口温度 710.0 °C 下推导 K=14.92（定值 K，该温度下严格精确）
+  710°C [warning] 反应 Water-gas shift：反应相态按气相处理（Phase=Vapor）；液相体系需显式指定
+  710°C [warning] 反应 Water-gas shift：V15 COM 拒绝原生 Gibbs 源（写 0 读回非 0），已改用 HYSYS 内置 Gibbs 自由能数据在出口温度 710.0 °C 下推导 K=1.561（定值 K，该温度下严格精确）
+  710°C [warning] 反应 Water-gas shift：基准组分 CO 进料流量为 0，转化率不可算
+  710°C  反应 Steam methane reforming 转化率 = 0.5390
+  710°C  converged=True  x_CH4=0.0965
+  600°C [warning] 反应 Steam Methane Reforming：反应相态按气相处理（Phase=Vapor）；液相体系需显式指定
+  600°C [warning] 反应 Steam Methane Reforming：V15 COM 拒绝原生 Gibbs 源（写 0 读回非 0），已改用 HYSYS 内置 Gibbs 自由能数据在出口温度 600.0 °C 下推导 K=0.5199（定值 K，该温度下严格精确）
+  600°C [warning] 反应 Water-Gas Shift：反应相态按气相处理（Phase=Vapor）；液相体系需显式指定
+  600°C [warning] 反应 Water-Gas Shift：V15 COM 拒绝原生 Gibbs 源（写 0 读回非 0），已改用 HYSYS 内置 Gibbs 自由能数据在出口温度 600.0 °C 下推导 K=2.744（定值 K，该温度下严格精确）
+  600°C [warning] 反应 Water-Gas Shift：基准组分 CO 进料流量为 0，转化率不可算
+  600°C  反应 Steam Methane Reforming 转化率 = 0.3035
+  600°C  converged=True  x_CH4=0.1617
+  CH4 转化率：710°C=0.5390  600°C=0.3035  [PASS]（710 应显著高于 600）
+
+总体：ALL PASS
