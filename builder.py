@@ -110,6 +110,44 @@ def _set_equilibrium_keq(case, rxn, stoich, outlet_t_c, warnings, tag):
                         % (tag, rb, EQ_BASIS_PARTIAL_PRESSURE))
 
 
+def _set_base_component(case, rxn, comp_name, tag):
+    """设置 Conversion 反应基准组分。
+
+    V15 实测（docs/conversion_base_component.txt）：BaseComponent 是
+    Component 对象属性，赋字符串报 Type mismatch (-2147352571)；
+    必须从 FluidPackage.Components / ComponentLists 取 Component 对象。
+    优先对象写法，回退字符串，两条都失败才抛带两类错误的异常。"""
+    fp = core.com("%s：获取物性包" % tag,
+                  lambda: case.BasisManager.FluidPackages.Item(0))
+    errors = []
+    comp_sources = [
+        ("FluidPackage.Components.Item",
+         lambda: fp.Components.Item(comp_name)),
+        ("ComponentLists[0].Components.Item",
+         lambda: case.BasisManager.ComponentLists.Item(0)
+         .Components.Item(comp_name)),
+    ]
+    for label, get_comp in comp_sources:
+        try:
+            comp = get_comp()
+            rxn.BaseComponent = comp
+            rb = rxn.BaseComponent
+            if getattr(rb, "name", None) != comp_name:
+                raise core.HysysError(
+                    "%s：BaseComponent 读回组分 %r != %r"
+                    % (tag, getattr(rb, "name", rb), comp_name))
+            return
+        except Exception as exc:
+            errors.append("%s 对象写法失败：%s" % (label, str(exc)[:120]))
+    try:  # 最后兜底：字符串（已知会 Type mismatch，但保留以防版本差异）
+        rxn.BaseComponent = comp_name
+        return
+    except Exception as exc:
+        errors.append("字符串写法失败：%s" % str(exc)[:120])
+    _fail(tag, "BaseComponent 设置失败（组分 %s）：%s"
+          % (comp_name, " | ".join(errors)))
+
+
 def _build_reactions(case, spec, outlet_t_c, warnings):
     """按 spec["reactions"] 创建反应并挂到 ReactionSet；gibbs 型不建方程。"""
     if spec["reactor_type"] == "gibbs":
@@ -147,6 +185,8 @@ def _build_reactions(case, spec, outlet_t_c, warnings):
         for comp in stoich:
             core.com("%s：添加组分 %s" % (tag, comp),
                      lambda r=rxn, c=comp: r.Reactants.Add(c))
+        # 实测（docs/conversion_base_component.txt）：HYSYS 接受分数系数
+        # （如 (-2, 1, 0.25)），无需为满足输入限制拆分多个平行反应
         core.com("%s：写入化学计量" % tag,
                  lambda r=rxn, s=stoich: setattr(
                      r, "ReactantStoichCoefValue",
@@ -178,11 +218,14 @@ def _build_reactions(case, spec, outlet_t_c, warnings):
             conv = rspec.get("conversion")
             if basis is None or conv is None:
                 _fail(tag, "conversion 反应缺少 basis_component 或 conversion")
-            core.com("%s：基准组分 %s" % (tag, basis),
-                     lambda r=rxn, b=basis: setattr(r, "BaseComponent", b))
+            _set_base_component(case, rxn, basis, tag)
+            # 类型库属性为 Conversion（float，百分比）；ConversionValue 不存在
             core.com("%s：转化率 %.4g %%" % (tag, conv),
-                     lambda r=rxn, v=conv: setattr(r, "ConversionValue",
-                                                   float(v)))
+                     lambda r=rxn, v=conv: setattr(r, "Conversion", float(v)))
+            conv_rb = core.com("%s：读回转化率" % tag, lambda r=rxn: r.Conversion)
+            if conv_rb is None or abs(float(conv_rb) - float(conv)) > 1e-6:
+                warnings.append("%s：转化率读回 %r != %.4g，已记录"
+                                % (tag, conv_rb, conv))
         else:  # equilibrium
             _set_equilibrium_keq(case, rxn, stoich, outlet_t_c, warnings, tag)
 
@@ -269,13 +312,14 @@ def _verify_reactions(case, spec):
                 problems.append("反应 %s：Keq 未设置或非法" % rname)
         elif rtype == "conversion":
             try:
-                if not rxn.BaseComponent:
+                bc = rxn.BaseComponent
+                if bc is None or not getattr(bc, "name", None):
                     problems.append("反应 %s：BaseComponent 为空" % rname)
             except Exception as exc:
                 problems.append("反应 %s：BaseComponent 读取失败（%s）"
                                 % (rname, str(exc)[:80]))
             try:
-                c = rxn.ConversionValue
+                c = rxn.Conversion
                 if c is None or not math.isfinite(float(c)):
                     problems.append("反应 %s：Conversion 为空" % rname)
             except Exception as exc:
@@ -330,6 +374,29 @@ def _build_from_spec_impl(spec, holder):
                             save_as=case_path)
     holder["case"] = case
     names = core.add_components(case, list(spec.get("components") or []))
+    # 组分白名单：case 组分集合必须严格等于 spec["components"]（顺序无关）。
+    # 多余的先尝试移除，清不掉则 fail fast，不带病出结果。
+    extra = [n for n in names if n not in set(spec.get("components") or [])]
+    if extra:
+        warnings.append("检测到白名单外组分 %s，尝试移除" % extra)
+        cl = core.com("白名单：获取组分列表",
+                      lambda: case.BasisManager.ComponentLists.Item(0))
+        bm = core.com("白名单：进入 Basis 变更模式",
+                      lambda: case.BasisManager)
+        core.com("白名单：StartBasisChange",
+                 lambda: bm.StartBasisChange())
+        try:
+            for n in extra:
+                core.com("白名单：移除组分 %s" % n,
+                         lambda c=n: cl.Components.Remove(c))
+        finally:
+            core.com("白名单：EndBasisChange",
+                     lambda: bm.EndBasisChange())
+        names = tuple(core.com("白名单：读回组分名",
+                               lambda: tuple(cl.Components.Names)))
+        still = [n for n in names if n not in set(spec["components"])]
+        if still:
+            _fail("白名单", "无法清除白名单外组分 %s，拒绝生成 case" % still)
     flowsheet = core.com("获取 Flowsheet", lambda: case.Flowsheet)
 
     # --- 反应 ---
@@ -450,11 +517,18 @@ def _build_from_spec_impl(spec, holder):
     fv = pv["molar_flow_kgmol_h"] or 0.0
     fl = pl["molar_flow_kgmol_h"] or 0.0
     total = fv + fl
+    # 非白名单组分只要携带流量即报错（防串味）
+    whitelist = set(spec.get("components") or [])
+    for label, p, f in (("汽相出口", pv, fv), ("液相出口", pl, fl)):
+        for comp, x in (p["composition_molfrac"] or {}).items():
+            if comp not in whitelist and x is not None and x * f > 1e-9:
+                _fail("出口检查", "%s存在非白名单组分 %s（分率 %.3g）且流量>0"
+                      % (label, comp, x))
     outlet_comp = {}
     if total > 0 and pv["composition_molfrac"] and pl["composition_molfrac"]:
-        for comp in names:
-            xv = pv["composition_molfrac"].get(comp, 0.0)
-            xl = pl["composition_molfrac"].get(comp, 0.0)
+        for comp in spec["components"]:  # 只输出白名单组分
+            xv = pv["composition_molfrac"].get(comp, 0.0) or 0.0
+            xl = pl["composition_molfrac"].get(comp, 0.0) or 0.0
             outlet_comp[comp] = (fv * xv + fl * xl) / total
 
     # 热负荷多路径容错：能量流股 HeatFlow 优先，反应器 HeatFlowValue 兜底；
@@ -474,7 +548,8 @@ def _build_from_spec_impl(spec, holder):
         except Exception as exc:
             warnings.append("热负荷读取失败（%s）：%s" % (label, str(exc)[:120]))
             continue
-        if v is not None and v > -32766:  # -32767 为 HYSYS 空值标记
+        if v is not None and abs(float(v) - (-32767.0)) > 1e-6:
+            # -32767 为 HYSYS 空值哨兵（精确匹配；大数值放热是合法值）
             duty = float(v)
             break
         warnings.append("热负荷为空值（%s 返回 %r）" % (label, v))

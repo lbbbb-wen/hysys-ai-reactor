@@ -1,0 +1,40 @@
+三连跑隔离性回归（同一 HYSYS 进程）
+============================================================
+
+[1] TDP-1 converged=True duty=0.0 MW case=c:\work\hysys-ai-reactor\cases\gen_20261025_123956_conversion.hsc
+    [warning] 检测到白名单外组分 ['Methane']，尝试移除
+    [warning] 未指定出口温度，反应器按绝热操作（热负荷=0）
+    Benzene    0.250000
+    Toluene    0.500000
+    m-Xylene   0.125000
+    o-Xylene   0.062500
+    p-Xylene   0.062500
+    组分键: ['Benzene', 'Toluene', 'm-Xylene', 'o-Xylene', 'p-Xylene']
+
+[2] SMR-710 converged=True duty=10.785961048795995 MW case=c:\work\hysys-ai-reactor\cases\gen_20261025_124017_equilibrium.hsc
+    [warning] 反应 SMR：反应相态按气相处理（Phase=Vapor）；液相体系需显式指定
+    [warning] 反应 SMR：V15 COM 拒绝原生 Gibbs 源（写 0 读回非 0），已改用 HYSYS 内置 Gibbs 自由能数据在出口温度 710.0 °C 下推导 K=14.92（定值 K，该温度下严格精确）
+    [warning] 反应 WGS：反应相态按气相处理（Phase=Vapor）；液相体系需显式指定
+    [warning] 反应 WGS：V15 COM 拒绝原生 Gibbs 源（写 0 读回非 0），已改用 HYSYS 内置 Gibbs 自由能数据在出口温度 710.0 °C 下推导 K=1.561（定值 K，该温度下严格精确）
+    CO         0.045482
+    CO2        0.067338
+    H2O        0.384914
+    Hydrogen   0.405800
+    Methane    0.096466
+    组分键: ['CO', 'CO2', 'H2O', 'Hydrogen', 'Methane']
+
+[3] TDP-2 converged=True duty=0.0 MW case=c:\work\hysys-ai-reactor\cases\gen_20261025_124019_conversion.hsc
+    [warning] 检测到白名单外组分 ['Methane']，尝试移除
+    [warning] 未指定出口温度，反应器按绝热操作（热负荷=0）
+    Benzene    0.250000
+    Toluene    0.500000
+    m-Xylene   0.125000
+    o-Xylene   0.062500
+    p-Xylene   0.062500
+    组分键: ['Benzene', 'Toluene', 'm-Xylene', 'o-Xylene', 'p-Xylene']
+
+[对比] TDP-1 vs TDP-2 最大摩尔分率偏差 = 0.000000 (< 0.005 PASS)
+[白名单] 三次结果均无外来组分泄漏 PASS
+[SMR锚点] CH4=0.096466（锚点 0.0965 ±0.005）PASS
+
+ISOLATION TEST ALL PASS

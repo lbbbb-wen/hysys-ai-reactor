@@ -110,6 +110,25 @@ def connect():
     return _app
 
 
+def close_all_cases():
+    """关闭当前 HYSYS 会话中所有打开的 case（不保存）。
+
+    隔离性保证：HYSYS 对已打开的同路径文档会返回内存中的对象，
+    前一个 case 的修改（组分/反应）会污染"重新打开"的模板。
+    每次新建 case 前必须先全部关闭。"""
+    app = connect()
+    try:
+        cases = app.SimulationCases
+        names = list(cases.Names) if cases.Count else []
+    except Exception:
+        names = []
+    for n in names:
+        try:
+            cases.Item(n).Close(False)
+        except Exception as exc:
+            _context_fail("close_all_cases", "关闭 case %s 失败：%s" % (n, exc))
+
+
 def create_case(property_package="Peng-Robinson", save_as=None):
     """从模板创建 case（另存工作副本，绝不覆盖模板）。
 
@@ -121,6 +140,7 @@ def create_case(property_package="Peng-Robinson", save_as=None):
     if not os.path.isfile(TEMPLATE):
         _context_fail("create_case", "模板不存在：%s" % TEMPLATE)
     app = connect()
+    close_all_cases()  # 隔离：禁止复用内存中被污染的同名文档
     case = com("create_case：打开模板", lambda: app.SimulationCases.Open(TEMPLATE))
     if save_as:
         os.makedirs(os.path.dirname(save_as), exist_ok=True)

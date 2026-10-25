@@ -1,0 +1,82 @@
+Gibbs 反应器路径三用例实测
+============================================================
+
+用例 A：甲烷+纯氧 1:2，等温 800°C
+  converged = True
+  出口 T = 800.0 °C
+  出口 P = 1.0 bar
+  热负荷 = -65.47950673946865 MW（负=放热）
+  case = C:\work\hysys-ai-reactor\cases\gen_20261025_124820_gibbs.hsc
+    x[CO       ] = 0.000000
+    x[CO2      ] = 0.333333
+    x[H2O      ] = 0.666666
+    x[Hydrogen ] = 0.000001
+    x[Methane  ] = 0.000000
+    x[Oxygen   ] = 0.000000
+  [PASS] 收敛：converged=True
+  [PASS] CH4 燃尽：x_CH4=7.43e-28
+  [PASS] O2 耗尽：x_O2=4.60e-07
+  [PASS] CO2+H2O 为主产物：x_CO2+x_H2O=1.0000
+
+用例 B：甲烷+空气（过量 100%，λ=2），绝热
+  converged = True
+  出口 T = 1205.8351884334406 °C
+  出口 P = 1.0 bar
+  热负荷 = 0.0 MW（负=放热）
+  case = C:\work\hysys-ai-reactor\cases\gen_20261025_124822_gibbs.hsc
+  [warning] 未指定出口温度，反应器按绝热操作（热负荷=0）
+    x[CO       ] = 0.000001
+    x[CO2      ] = 0.049881
+    x[H2O      ] = 0.099762
+    x[Hydrogen ] = 0.000000
+    x[Methane  ] = 0.000000
+    x[Nitrogen ] = 0.750593
+    x[Oxygen   ] = 0.099763
+  [PASS] 收敛：converged=True
+  [PASS] λ=2 绝热温度 1050-1400°C（热容翻倍的物理正确区间）：T=1205.8
+  [PASS] N2 为最大组分：x_N2=0.7506
+  [PASS] 过量 O2 有剩余：x_O2=0.0998
+
+用例 B-stoich：参照：甲烷+化学计量空气（λ=1），绝热
+  converged = True
+  出口 T = 1955.213350645649 °C
+  出口 P = 1.0 bar
+  热负荷 = 0.0 MW（负=放热）
+  case = C:\work\hysys-ai-reactor\cases\gen_20261025_124824_gibbs.hsc
+  [warning] 未指定出口温度，反应器按绝热操作（热负荷=0）
+    x[CO       ] = 0.008559
+    x[CO2      ] = 0.085882
+    x[H2O      ] = 0.185191
+    x[Hydrogen ] = 0.003690
+    x[Methane  ] = 0.000000
+    x[Nitrogen ] = 0.710554
+    x[Oxygen   ] = 0.006124
+  [PASS] 收敛：converged=True
+  [PASS] λ=1 绝热火焰温度 1700-2100°C（原判据的适用工况）：T=1955.2
+  [PASS] 高温离解出 CO：x_CO=8.56e-03
+  [PASS] N2 为最大组分：x_N2=0.7106
+
+用例 C：甲烷+纯氧 1:1（欠氧），等温 1000°C
+  converged = True
+  出口 T = 1000.0 °C
+  出口 P = 1.0 bar
+  热负荷 = -26.13621625906638 MW（负=放热）
+  case = C:\work\hysys-ai-reactor\cases\gen_20261025_124826_gibbs.hsc
+    x[CO       ] = 0.246974
+    x[CO2      ] = 0.086356
+    x[H2O      ] = 0.246993
+    x[Hydrogen ] = 0.419667
+    x[Methane  ] = 0.000010
+    x[Oxygen   ] = 0.000000
+  [PASS] 收敛：converged=True
+  [PASS] 出现 CO：x_CO=0.2470
+  [PASS] 出现 H2：x_H2=0.4197
+  [PASS] CH4 有残留（>0）：x_CH4=9.72e-06
+  [PASS] O2 接近 0：x_O2=8.83e-16
+
+用例 A 元素守恒（反推出口流量 1000.00 kgmole/h）
+  [PASS] 元素 C：进 333.33 出 333.33 偏差 0.000%
+  [PASS] 元素 H：进 1333.33 出 1333.33 偏差 0.000%
+  [PASS] 元素 O：进 1333.33 出 1333.33 偏差 0.000%
+
+总体：ALL PASS
