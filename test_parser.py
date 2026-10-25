@@ -107,6 +107,22 @@ def main():
             ok &= check("missing_info 非空",
                         bool(data.get("missing_info")),
                         "missing_info=%s" % data.get("missing_info"))
+        # 一致性断言：任一关键字段为空 -> missing_info 必须非空
+        feed = data.get("feed") or {}
+        key_fields = {
+            "components": data.get("components"),
+            "feed.T_C": feed.get("T_C"),
+            "feed.P_bar": feed.get("P_bar"),
+            "feed.flow": feed.get("flow"),
+            "feed.composition": feed.get("composition"),
+        }
+        if data.get("reactor_type") != "gibbs":
+            key_fields["reactions"] = data.get("reactions")
+        empty_keys = [k for k, v in key_fields.items() if not v]
+        if empty_keys:
+            ok &= check("一致性：%s 为空 -> missing_info 非空" % empty_keys,
+                        bool(data.get("missing_info")),
+                        "missing_info=%s" % data.get("missing_info"))
         if not ok:
             failures.append(case["id"])
 

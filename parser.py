@@ -25,7 +25,7 @@ REQUIRED_ENV = ("LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL")
 ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
 
 OUTPUT_SCHEMA = """{
-  "reactor_type": "conversion|equilibrium|gibbs|cstr|pfr",
+  "reactor_type": "conversion|equilibrium|gibbs|cstr|pfr|null",
   "selection_reason": "中文选型理由，说明为什么选它、为什么排除其他类型",
   "components": ["HYSYS库组分名"],
   "reactions": [
@@ -34,7 +34,7 @@ OUTPUT_SCHEMA = """{
      "conversion": null, "basis_component": null}
   ],
   "feed": {"T_C": null, "P_bar": null, "flow": null, "flow_unit": "",
-           "composition": {}},
+           "flow_basis": "total", "composition": {}},
   "outlet_spec": {"T_C": null, "P_bar": null},
   "missing_info": [],
   "assumptions": []
@@ -67,14 +67,26 @@ HYSYS 反应器建模指令。你只输出一个 JSON 对象：不要 markdown �
    m-Xylene、p-Xylene），拆分比例假设写入 assumptions。
 4. 流量单位必须显式给出（kg/h、kmol/h 等），并如实保留用户给的单位；
    质量流量（kg/h）不得自行换算成摩尔流量。
+   feed.flow_basis 表示 flow 的语义："total"=混合物总流量；
+   "component:<组分名>"=某单组分的流量。用户表述含"总流量"或只给
+   混合物流量时填 "total"；明确说"甲烷 100 kmol/h 进料"这类组分流量
+   时填 "component:Methane"（用 HYSYS 库名），composition 照常给
+   摩尔分率，并在 assumptions 写明换算后的总流量。
 5. stoichiometry 中反应物系数为负、产物为正，数值为化学计量数；
    conversion 型反应填 conversion（百分数）与 basis_component；
    equilibrium/gibbs 型这两项为 null。
 6. missing_info 只填建模必需的缺口（如反应器类型完全无法判断、
    既无反应也无进料）；非必需参数自行做合理假设并写入 assumptions。
+   当 missing_info 非空时：reactor_type 必须输出 null，
+   selection_reason 必须写"信息不足，无法判断反应器类型"；
+   禁止臆断一个占位类型。只有信息足够建模时才给出具体 reactor_type。
+   一致性要求：凡关键字段（components、reactions、feed.T_C、feed.P_bar、
+   feed.flow、feed.composition）为 null 或空，且你没有给出明确数值假设，
+   必须把该项加入 missing_info；missing_info 非空时不得声称可以建模。
+   进料温度未给出时直接假设 25 °C 并写入 assumptions，不列入 missing_info。
 7. feed.composition 的键为 HYSYS 库组分名，值为摩尔分率（数值），
    各值之和应为 1；用户给的是比例时归一化后填入，并在 assumptions 说明。
-8. 用户未给定的温度/压力/流量保持 null，不要编造。
+8. 用户未给定的压力/流量保持 null，不要编造；进料温度按第 6 条处理。
 
 
 9. 温度一律用摄氏度的数值（T_C），压力用 bar 的数值（P_bar）；
@@ -186,6 +198,10 @@ def parse_user_input(text):
     missing = [k for k in required if k not in data]
     if missing:
         raise RuntimeError("模型输出缺少必需键 %s：\n%s" % (missing, raw))
+    # 契约兜底：missing_info 非空时不允许臆断 reactor_type
+    if data["missing_info"]:
+        data["reactor_type"] = None
+        data["selection_reason"] = "信息不足，无法判断反应器类型"
     return data
 
 
