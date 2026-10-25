@@ -1,0 +1,99 @@
+{
+  "prompt": "Simulate steam methane reforming. Feed is methane and steam at molar ratio 1:2.7, total flow 3700 kmol/h, feed temperature 520 C, pressure 13.5 bar. Reactions: CH4 + H2O = CO + 3H2; CO + H2O = CO2 + H2. Outlet 710 C, 13.5 bar.",
+  "spec": {
+    "reactor_type": "equilibrium",
+    "selection_reason": "甲烷蒸汽重整包含两个明确的可逆反应（重整反应 CH4+H2O=CO+3H2 与水汽变换反应 CO+H2O=CO2+H2），体系受化学平衡控制，用户未提供动力学参数或转化率数据，因此选用平衡反应器；虽然体系含多个反应，但反应方程式均可明确写出，故不选 gibbs；无动力学参数，故不选 pfr/cstr；无转化率数据，故不选 conversion。",
+    "components": [
+      "Methane",
+      "H2O",
+      "CO",
+      "CO2",
+      "Hydrogen"
+    ],
+    "reactions": [
+      {
+        "name": "Steam Methane Reforming",
+        "equation": "CH4 + H2O = CO + 3H2",
+        "stoichiometry": {
+          "Methane": -1,
+          "H2O": -1,
+          "CO": 1,
+          "Hydrogen": 3
+        },
+        "type": "equilibrium",
+        "conversion": null,
+        "basis_component": null
+      },
+      {
+        "name": "Water Gas Shift",
+        "equation": "CO + H2O = CO2 + H2",
+        "stoichiometry": {
+          "CO": -1,
+          "H2O": -1,
+          "CO2": 1,
+          "Hydrogen": 1
+        },
+        "type": "equilibrium",
+        "conversion": null,
+        "basis_component": null
+      }
+    ],
+    "feed": {
+      "T_C": 520,
+      "P_bar": 13.5,
+      "flow": 3700,
+      "flow_unit": "kmol/h",
+      "flow_basis": "total",
+      "composition": {
+        "Methane": 0.2703,
+        "H2O": 0.7297,
+        "CO": 0,
+        "CO2": 0,
+        "Hydrogen": 0
+      }
+    },
+    "outlet_spec": {
+      "T_C": 710,
+      "P_bar": 13.5
+    },
+    "missing_info": [],
+    "assumptions": [
+      "进料甲烷与水蒸气摩尔比 1:2.7，归一化后甲烷摩尔分率 1/3.7=0.2703，水蒸气摩尔分率 2.7/3.7=0.7297。",
+      "进料中不含 CO、CO2、H2，其摩尔分率设为 0。",
+      "总流量 3700 kmol/h 为混合进料总摩尔流量。",
+      "两个反应均按平衡反应处理，平衡常数由 HYSYS 平衡反应器内置的平衡数据计算。"
+    ]
+  },
+  "result": {
+    "status": "ok",
+    "reactor_type": "equilibrium",
+    "selection_reason": "甲烷蒸汽重整包含两个明确的可逆反应（重整反应 CH4+H2O=CO+3H2 与水汽变换反应 CO+H2O=CO2+H2），体系受化学平衡控制，用户未提供动力学参数或转化率数据，因此选用平衡反应器；虽然体系含多个反应，但反应方程式均可明确写出，故不选 gibbs；无动力学参数，故不选 pfr/cstr；无转化率数据，故不选 conversion。",
+    "assumptions": [
+      "进料甲烷与水蒸气摩尔比 1:2.7，归一化后甲烷摩尔分率 1/3.7=0.2703，水蒸气摩尔分率 2.7/3.7=0.7297。",
+      "进料中不含 CO、CO2、H2，其摩尔分率设为 0。",
+      "总流量 3700 kmol/h 为混合进料总摩尔流量。",
+      "两个反应均按平衡反应处理，平衡常数由 HYSYS 平衡反应器内置的平衡数据计算。"
+    ],
+    "total_molar_flow_kgmol_h": 3700.0,
+    "outlet": {
+      "T_C": 710.0,
+      "P_bar": 13.5,
+      "composition_molfrac": {
+        "Methane": 0.0964847959389573,
+        "H2O": 0.3848853056498891,
+        "CO": 0.04548552280079998,
+        "CO2": 0.0673375294929748,
+        "Hydrogen": 0.4058068461173789
+      }
+    },
+    "heat_duty": 39.909205800846394,
+    "converged": true,
+    "case_file": "C:\\work\\hysys-ai-reactor\\cases\\gen_20261025_121946_equilibrium.hsc",
+    "warnings": [
+      "反应 Steam Methane Reforming：反应相态按气相处理（Phase=Vapor）；液相体系需显式指定",
+      "反应 Steam Methane Reforming：V15 COM 拒绝原生 Gibbs 源（写 0 读回非 0），已改用 HYSYS 内置 Gibbs 自由能数据在出口温度 710.0 °C 下推导 K=14.92（定值 K，该温度下严格精确）",
+      "反应 Water Gas Shift：反应相态按气相处理（Phase=Vapor）；液相体系需显式指定",
+      "反应 Water Gas Shift：V15 COM 拒绝原生 Gibbs 源（写 0 读回非 0），已改用 HYSYS 内置 Gibbs 自由能数据在出口温度 710.0 °C 下推导 K=1.561（定值 K，该温度下严格精确）"
+    ]
+  }
+}

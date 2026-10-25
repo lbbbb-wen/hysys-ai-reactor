@@ -33,6 +33,7 @@ REACTION_TYPES = {
     "equilibrium": "equilibriumrxn",
 }
 REACTION_PHASE_OVERALL = 5          # Overall（汽液全相）
+REACTION_PHASE_VAPOUR = 0           # VapourOnly（GUI: Phase=Vapor）
 EQ_BASIS_PARTIAL_PRESSURE = 2       # rbPartialPressBasis
 R_GAS_KJ_PER_KMOL_K = 8.314462618   # kJ/(kgmol·K)
 
@@ -74,6 +75,10 @@ def _set_equilibrium_keq(case, rxn, stoich, outlet_t_c, warnings, tag):
         ln_k = _gibbs_keq(case, stoich, t_k)
         core.com("%s：写入 Gibbs 推导的定值 K" % tag,
                  lambda: setattr(rxn, "EquilibriumConstant", math.exp(ln_k)))
+        k_rb = core.com("%s：读回 Keq" % tag,
+                        lambda: rxn.EquilibriumConstant)
+        if not (k_rb and math.isfinite(float(k_rb))):
+            warnings.append("%s：Keq 读回异常（%r），已记录" % (tag, k_rb))
         warnings.append(
             "%s：V15 COM 拒绝原生 Gibbs 源（写 0 读回非 0），已改用 HYSYS "
             "内置 Gibbs 自由能数据在出口温度 %.1f °C 下推导 K=%.4g（定值 K，"
@@ -99,6 +104,10 @@ def _set_equilibrium_keq(case, rxn, stoich, outlet_t_c, warnings, tag):
     core.com("%s：Basis=PartialPressure, BasisUnits=bar" % tag,
              lambda: (setattr(rxn, "Basis", EQ_BASIS_PARTIAL_PRESSURE),
                       setattr(rxn, "BasisUnits2", "bar")))
+    rb = core.com("%s：读回 Basis" % tag, lambda: rxn.Basis)
+    if rb != EQ_BASIS_PARTIAL_PRESSURE:
+        warnings.append("%s：Basis 读回 %r != PartialPress(%d)，已记录"
+                        % (tag, rb, EQ_BASIS_PARTIAL_PRESSURE))
 
 
 def _build_reactions(case, spec, outlet_t_c, warnings):
@@ -142,9 +151,24 @@ def _build_reactions(case, spec, outlet_t_c, warnings):
                  lambda r=rxn, s=stoich: setattr(
                      r, "ReactantStoichCoefValue",
                      tuple(float(v) for v in s.values())))
-        core.com("%s：ReactionPhase=Overall" % tag,
-                 lambda r=rxn: setattr(r, "ReactionPhase",
-                                       REACTION_PHASE_OVERALL))
+        # Phase：GUI 实测 Phase 为空会导致反应器 Unknown Duty。
+        # equilibrium 气相体系显式设 Vapor（液相体系暂无 spec 字段，
+        # 默认 Vapor 并写 warning）；conversion 沿用已验证的 Overall。
+        if rtype == "equilibrium":
+            phase = REACTION_PHASE_VAPOUR
+            phase_name = "Vapor"
+            warnings.append("%s：反应相态按气相处理（Phase=Vapor）；"
+                            "液相体系需显式指定" % tag)
+        else:
+            phase = REACTION_PHASE_OVERALL
+            phase_name = "Overall"
+        core.com("%s：ReactionPhase=%s" % (tag, phase_name),
+                 lambda r=rxn, p=phase: setattr(r, "ReactionPhase", p))
+        rb = core.com("%s：读回 ReactionPhase" % tag,
+                      lambda r=rxn: r.ReactionPhase)
+        if rb != phase:
+            warnings.append("%s：Phase 读回 %r != %s(%d)，已记录"
+                            % (tag, rb, phase_name, phase))
         # 先加入反应集，再设置类型相关参数（V15 顺序约束）
         core.com("%s：加入 ReactionSet" % tag,
                  lambda r=rxn: rs.ActiveReactions.Add(r))
@@ -199,6 +223,67 @@ def validate_spec(spec):
     return problems
 
 
+def _verify_reactions(case, spec):
+    """反应完整性检查：逐反应重取对象，校验 Phase/Basis/Keq 非空。
+    返回问题列表（空 = 完整）。任一缺失都不得进入求解。"""
+    problems = []
+    rpm = core.com("完整性检查：获取 ReactionPackageManager",
+                   lambda: case.BasisManager.ReactionPackageManager)
+    for i, rspec in enumerate(spec.get("reactions") or []):
+        rname = rspec.get("name") or "RXN-%d" % (i + 1)
+        rtype = rspec.get("type")
+        try:
+            rxn = rpm.Reactions.Item(rname)
+        except Exception as exc:
+            problems.append("反应 %s：创建后按名称取回失败（%s）"
+                            % (rname, str(exc)[:80]))
+            continue
+        try:
+            if rxn.ReactionPhase is None:
+                problems.append("反应 %s：Phase 为空" % rname)
+        except Exception as exc:
+            problems.append("反应 %s：Phase 读取失败（%s）"
+                            % (rname, str(exc)[:80]))
+        if rtype == "equilibrium":
+            try:
+                if rxn.Basis is None:
+                    problems.append("反应 %s：Basis 为空" % rname)
+            except Exception as exc:
+                problems.append("反应 %s：Basis 读取失败（%s）"
+                                % (rname, str(exc)[:80]))
+            keq_ok = False
+            try:
+                k = rxn.EquilibriumConstant
+                keq_ok = (k is not None and math.isfinite(float(k))
+                          and float(k) > 0)
+            except Exception:
+                pass
+            if not keq_ok:
+                try:
+                    a = rxn.LnKEquationAParameter
+                    b = rxn.LnKEquationBParameter
+                    keq_ok = bool(a) or bool(b)
+                except Exception:
+                    pass
+            if not keq_ok:
+                problems.append("反应 %s：Keq 未设置或非法" % rname)
+        elif rtype == "conversion":
+            try:
+                if not rxn.BaseComponent:
+                    problems.append("反应 %s：BaseComponent 为空" % rname)
+            except Exception as exc:
+                problems.append("反应 %s：BaseComponent 读取失败（%s）"
+                                % (rname, str(exc)[:80]))
+            try:
+                c = rxn.ConversionValue
+                if c is None or not math.isfinite(float(c)):
+                    problems.append("反应 %s：Conversion 为空" % rname)
+            except Exception as exc:
+                problems.append("反应 %s：Conversion 读取失败（%s）"
+                                % (rname, str(exc)[:80]))
+    return problems
+
+
 def build_from_spec(spec):
     """spec -> 建模 -> 求解 -> 结果 dict（契约见模块文档与用户约定）。"""
     problems = validate_spec(spec)
@@ -250,6 +335,21 @@ def _build_from_spec_impl(spec, holder):
     # --- 反应 ---
     reaction_set = _build_reactions(case, spec, outlet_spec.get("T_C"),
                                     warnings)
+    if reaction_set is not None:
+        rxn_problems = _verify_reactions(case, spec)
+        if rxn_problems:
+            core.com("保存 case（完整性检查未通过，未求解）",
+                     lambda: case.Save())
+            warnings.append("反应完整性检查未通过，已跳过求解："
+                            + "；".join(rxn_problems))
+            return {"status": "ok", "reactor_type": reactor_type,
+                    "selection_reason": spec.get("selection_reason", ""),
+                    "assumptions": spec.get("assumptions", []),
+                    "total_molar_flow_kgmol_h": None,
+                    "outlet": {"T_C": None, "P_bar": None,
+                               "composition_molfrac": {}},
+                    "heat_duty": None, "converged": False,
+                    "case_file": case_path, "warnings": warnings}
 
     # --- 进料物流（flow_basis 语义 -> 总流量，统一换算为 kgmole/h）---
     flow_unit = (feed_spec.get("flow_unit") or "").strip()
@@ -357,8 +457,48 @@ def _build_from_spec_impl(spec, holder):
             xl = pl["composition_molfrac"].get(comp, 0.0)
             outlet_comp[comp] = (fv * xv + fl * xl) / total
 
-    duty = core.com("读取反应器热负荷", lambda: reactor2.HeatFlowValue)
+    # 热负荷多路径容错：能量流股 HeatFlow 优先，反应器 HeatFlowValue 兜底；
+    # 结果字段读取失败只降级为 warning，不中断流程
+    duty = None
+    duty_paths = [
+        ("能量流股 %s.HeatFlow" % ENERGY_NAME,
+         lambda: core.com("重新获取能量流股 %s" % ENERGY_NAME,
+                          lambda: flowsheet.EnergyStreams.Item(ENERGY_NAME))
+         .HeatFlow.GetValue("kJ/s")),
+        ("反应器 %s.HeatFlowValue" % REACTOR_NAME,
+         lambda: reactor2.HeatFlowValue),
+    ]
+    for label, fn in duty_paths:
+        try:
+            v = fn()
+        except Exception as exc:
+            warnings.append("热负荷读取失败（%s）：%s" % (label, str(exc)[:120]))
+            continue
+        if v is not None and v > -32766:  # -32767 为 HYSYS 空值标记
+            duty = float(v)
+            break
+        warnings.append("热负荷为空值（%s 返回 %r）" % (label, v))
+    if duty is None:
+        warnings.append("热负荷不可用：所有读取路径均失败，duty=null")
     heat_duty_mw = duty / 1000.0 if duty is not None else None  # kJ/s -> MW
+
+    # --- 结果完整性断言：出口各物流组成合计 1.000±0.001、duty 有限 ---
+    integrity = []
+    for label, p in (("汽相出口", pv), ("液相出口", pl)):
+        comp = p["composition_molfrac"]
+        vals = [v for v in (comp or {}).values() if v is not None]
+        flow = p["molar_flow_kgmol_h"] or 0.0
+        if flow <= 1e-6 and (not vals or abs(sum(vals)) <= 1e-6):
+            continue  # 零流量空流股：无组成可言，跳过断言
+        if not vals:
+            integrity.append("%s 组成为空" % label)
+        elif abs(sum(vals) - 1.0) > 0.001:
+            integrity.append("%s 组成合计 %.4f ≠ 1.000" % (label, sum(vals)))
+    if heat_duty_mw is None or not math.isfinite(heat_duty_mw):
+        integrity.append("热负荷不是有限数值")
+    if integrity:
+        converged = False
+        warnings.append("结果完整性断言未通过：" + "；".join(integrity))
 
     core.com("保存 case", lambda: case.Save())
 
@@ -368,5 +508,5 @@ def _build_from_spec_impl(spec, holder):
             "total_molar_flow_kgmol_h": molar_flow,
             "outlet": {"T_C": pv["T_C"], "P_bar": pv["P_bar"],
                        "composition_molfrac": outlet_comp},
-            "heat_duty": heat_duty_mw, "converged": True,
+            "heat_duty": heat_duty_mw, "converged": converged,
             "case_file": case_path, "warnings": warnings}
