@@ -40,3 +40,8 @@ Thumbs.db
 # HYSYS binary case files
 *.hscf
 *.bak
+
+cases/
+__pycache__/
+.env
+.venv/
