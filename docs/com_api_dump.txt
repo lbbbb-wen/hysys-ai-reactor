@@ -1,0 +1,684 @@
+HYSYS COM 接口地图（com_api_dump.txt）
+生成时间: 2026-10-25T06:35:12
+HYSYS 版本: Aspen HYSYS Version 15 (41.0)
+成员枚举方式: gencache.EnsureDispatch（makepy 静态绑定）
+
+========================================================================
+实测结论（本脚本运行时真实测试所得；另含在完整 Case 上预先验证的数字，已注明）
+========================================================================
+【组分添加】
+    Components.Add("Methane") 成功
+    Components.Add("Water") 报错：HRESULT=-2147352567 —— 组分名必须来自 HYSYS 组分库（水的库名为 "H2O"，"Water" 非法）
+    Components.Add("H2O") 成功
+    确认：Component List - 1 当前 Count=2，Names=('Methane', 'H2O')
+【物性包设为 Peng-Robinson】
+    官方属性：FluidPackage.PropertyPackageName（Help → Customization Guide（本机为 xhysys.chm 的 FluidPackage 对象页）：“Property Get/Let PropertyPackageName As String”，dispid 1610874881）。配套只读对象：FluidPackage.PropertyPackage（Get PropPackage），其 TypeName 为 HYSYS 内部类型名（Peng-Robinson -> "pengrob"）。
+    正确写法（必须在 Basis 变更模式内写入，否则 E_ACCESSDENIED）：
+      bm = case.BasisManager
+      bm.StartBasisChange()
+      fp.PropertyPackageName = "Peng-Robinson"
+      if bm.CanEndBasisChange: bm.EndBasisChange()   # 提交 Basis
+    本次读取（空白 Case 新建 FP）：抛错 HRESULT=-2147352567，inner=0x80004005（FluidPackages.Add() 建出的 FP 初始不含物性包）
+    本次写入：写入 'Peng-Robinson' 抛错 HRESULT=-2147352567，inner=0x80070057
+    写入 'PR' 抛错 HRESULT=-2147352567，inner=0x80070057（说明 "PR" 不是可用的注册基名）
+    本次 CanEndBasisChange = False
+    结论（V15 实测边界）：
+      1) 属性名与写法如上；名称必须用注册基名，“UNIQUAC - Ideal”这类带后缀的显示名不可写，"PR"/"Ideal" 等别名报 E_INVALIDARG。
+      2) Basis 模式外直接写 -> E_ACCESSDENIED 0x80070005；StartBasisChange 后写有效包名 -> 成功并立即读回。
+      3) 可在同族内切换：UNIQUAC(活度系数) -> NRTL 成功；Peng-Robinson(EOS) -> SRK 成功；跨族切换（UNIQUAC -> Peng-Robinson）被拒 E_INVALIDARG。
+      4) 对 FluidPackages.Add() 新建的空白 FP（无物性包）写任何包名都是 E_INVALIDARG，且 CanEndBasisChange 恒为 False —— V15 无法仅用 COM 从零建立可用 basis；SimulationCases.Add(name, Type) 的 Type 参数被忽略（传路径/'Template'/'Blank'/1 均无效）。
+      5) 因此推荐路径：先用一个已含目标物性包的 case 作模板（SimulationCases.Open），再改组分、清流程、建模；或先在 GUI 里建好含 Peng-Robinson 的空白模板保存复用。
+    对照实测（自带示例 K-101.hsc）：原 PPN='Peng-Robinson'，TypeName='pengrob'
+      Basis 模式外：写入 'SRK' 抛错 HRESULT=-2147352567，inner=0x80070005
+      StartBasisChange 后：写入 'SRK' 调用成功，读回 'SRK'
+      CanEndBasisChange = True
+      （验证后不保存关闭；空白新 case 可用此法：打开含 Peng-Robinson 的模板再建模）
+【MaterialStream 温度/压力/流量的单位机制】
+    本次实测 温度：SetValue 抛错 HRESULT=-2147352567（E_ACCESSDENIED 0x80070005：空白 Case 无物性包、basis 不完整，流股变量被锁定；此时 GetValue 返回 -32767，即 HYSYS 的空值标记）
+    本次实测 压力：SetValue 抛错 HRESULT=-2147352567（E_ACCESSDENIED 0x80070005：空白 Case 无物性包、basis 不完整，流股变量被锁定；此时 GetValue 返回 -32767，即 HYSYS 的空值标记）
+    本次实测 流量：SetValue 抛错 HRESULT=-2147352567（E_ACCESSDENIED 0x80070005：空白 Case 无物性包、basis 不完整，流股变量被锁定；此时 GetValue 返回 -32767，即 HYSYS 的空值标记）
+    在 basis 完整的 Case 上的已验证实测（示例 Case，Water Feed 流股，显示单位集 °C/kPa/…）：
+      T.SetValue(30,'C') -> GetValue('C')=30.0, GetValue('K')=303.15, .Value=30.0
+      P.SetValue(1,'bar') -> GetValue('bar')=1.0, GetValue('kPa')=100.0, .Value=100.0
+      T.Value=25 直接赋值 -> GetValue('C')=25.0（按显示单位 °C 解释）
+      只读侧：T .Value=23.889=GetValue('C')（显示单位 °C，而非内部单位 K=297.04）
+    结论：SetValue(value, 单位字符串) / GetValue(单位字符串) 支持自动换算（证据见上方 RealVariable dump 中的 GetValue/SetValue 方法）；裸 .Value（读和直接赋值）使用 Case 当前显示单位集，不是固定内部单位。被求解器计算的变量（CanModify=False）不可写。实践建议：读写一律用 SetValue/GetValue 显式指定单位字符串，避免依赖当前显示单位集。
+
+以下为核心 COM 对象的成员枚举（接口地图）
+
+========================================================================
+MaterialStream（实例 COM_TestStream）
+========================================================================
+[枚举方式] makepy 静态绑定类（_prop_map_get/_prop_map_put + dir）
+[可读属性]
+  ActualGasFlow
+  ActualGasFlowValue
+  ActualLiqFlow
+  ActualLiqFlowValue
+  ActualVolumeFlow
+  ActualVolumeFlowValue
+  Application
+  AttachedOpers
+  AvgLiqDensity
+  AvgLiqDensityValue
+  BOBubblePointPressure
+  BOBubblePointPressureValue
+  BOBubblePointTemperature
+  BOBubblePointTemperatureValue
+  BOGasOilRatio
+  BOGasOilRatioValue
+  BOMassEnthalpy
+  BOMassEnthalpyValue
+  BOMassFlow
+  BOMassFlowValue
+  BOOilFormationVolumeFactor
+  BOOilFormationVolumeFactorValue
+  BOOilViscosity
+  BOOilViscosityValue
+  BOPressure
+  BOPressureValue
+  BOSolutionGOR
+  BOSolutionGORValue
+  BOSpecificGravity
+  BOSpecificGravityValue
+  BOSurfaceTension
+  BOSurfaceTensionValue
+  BOTemperature
+  BOTemperatureInVM
+  BOTemperatureInVMValue
+  BOTemperatureValue
+  BOViscosity
+  BOViscosityCoefficientA
+  BOViscosityCoefficientAValue
+  BOViscosityCoefficientB
+  BOViscosityCoefficientBValue
+  BOViscosityMethod
+  BOViscosityMethodType
+  BOViscosityValue
+  BOVolumetricFlow
+  BOVolumetricFlowValue
+  BOWaterCut
+  BOWaterCutValue
+  BOWatsonK
+  BOWatsonKValue
+  BoilingPointTable
+  CanModifyStream
+  ColdProperty
+  ComponentMassFlow
+  ComponentMassFlowValue
+  ComponentMassFraction
+  ComponentMassFractionValue
+  ComponentMolarFlow
+  ComponentMolarFlowValue
+  ComponentMolarFraction
+  ComponentMolarFractionValue
+  ComponentVolumeFlow
+  ComponentVolumeFlowValue
+  ComponentVolumeFraction
+  ComponentVolumeFractionValue
+  Compressibility
+  CompressibilityValue
+  CostFactor
+  CostFactorValue
+  CpCv
+  CpCvValue
+  DownstreamOpers
+  EnthalpyEstimate
+  EnthalpyEstimateValue
+  FlowBasis
+  FlowEstimate
+  FlowEstimateValue
+  FlowSpecificationType
+  Flowsheet
+  FluidPackage
+  HeatFlow
+  HeatFlowValue
+  HeatOfVap
+  HeatOfVapValue
+  HeavyLiquidFraction
+  HeavyLiquidFractionValue
+  HigherHeatValue
+  HigherHeatValueValue
+  IdealLiquidVolumeFlow
+  IdealLiquidVolumeFlowValue
+  IsEnergyStream
+  IsValid
+  KineticViscosity
+  KineticViscosityValue
+  LightLiquidFraction
+  LightLiquidFractionValue
+  LiquidFraction
+  LiquidFractionValue
+  LowerHeatValue
+  LowerHeatValueValue
+  MassDensity
+  MassDensityValue
+  MassEnthalpy
+  MassEnthalpyValue
+  MassEntropy
+  MassEntropyValue
+  MassFlow
+  MassFlowValue
+  MassHeatCapacity
+  MassHeatCapacityValue
+  MassHeatOfVap
+  MassHeatOfVapValue
+  MassHigherHeatValue
+  MassHigherHeatValueValue
+  MassLowerHeatValue
+  MassLowerHeatValueValue
+  MolarDensity
+  MolarDensityValue
+  MolarEnthalpy
+  MolarEnthalpyValue
+  MolarEntropy
+  MolarEntropyValue
+  MolarFlow
+  MolarFlowValue
+  MolarHeatCapacity
+  MolarHeatCapacityValue
+  MolarVolume
+  MolarVolumeValue
+  MolecularWeight
+  MolecularWeightValue
+  Moniker
+  Parent
+  Power
+  PowerValue
+  Pressure
+  PressureCO2
+  PressureCO2Value
+  PressureSpecificationType
+  PressureValue
+  SGAir
+  SGAirValue
+  SimulationCase
+  StdGasFlow
+  StdGasFlowValue
+  StdLiqMassDensity
+  StdLiqMassDensityValue
+  StdLiqVolFlow
+  StdLiqVolFlowValue
+  StreamDescription
+  SurfaceTension
+  SurfaceTensionValue
+  TaggedName
+  Temperature
+  TemperatureEstimate
+  TemperatureEstimateValue
+  TemperatureValue
+  ThermalConductivity
+  ThermalConductivityValue
+  TypeName
+  UniqueID
+  UpstreamOpers
+  VapourFraction
+  VapourFractionValue
+  Viscosity
+  ViscosityValue
+  VisibleTypeName
+  WatsonK
+  WatsonKValue
+  name
+[可写属性]
+  BOBubblePointPressureValue
+  BOBubblePointTemperatureValue
+  BOGasOilRatioValue
+  BOMassEnthalpyValue
+  BOMassFlowValue
+  BOOilFormationVolumeFactorValue
+  BOOilViscosityValue
+  BOPressureValue
+  BOSolutionGORValue
+  BOSpecificGravityValue
+  BOSurfaceTensionValue
+  BOTemperatureInVMValue
+  BOTemperatureValue
+  BOViscosityCoefficientAValue
+  BOViscosityCoefficientBValue
+  BOViscosityMethodType
+  BOViscosityValue
+  BOVolumetricFlowValue
+  BOWaterCutValue
+  BOWatsonKValue
+  ComponentMassFlowValue
+  ComponentMassFractionValue
+  ComponentMolarFlowValue
+  ComponentMolarFractionValue
+  ComponentVolumeFlowValue
+  ComponentVolumeFractionValue
+  CostFactorValue
+  EnthalpyEstimateValue
+  FlowBasis
+  FlowEstimateValue
+  FlowSpecificationType
+  HeatFlowValue
+  IdealLiquidVolumeFlowValue
+  IsEnergyStream
+  MassFlowValue
+  MolarEnthalpyValue
+  MolarEntropyValue
+  MolarFlowValue
+  PressureSpecificationType
+  PressureValue
+  StreamDescription
+  TemperatureEstimateValue
+  TemperatureValue
+  VapourFractionValue
+  name
+[方法]
+  CalculateAsFluid
+  CalculateAsFluidPhase
+  ComponentIndices
+  CreateUserVariable
+  DuplicateFluid
+  GenerateHeatCurves
+  GetCorrelationValue
+  GetFluid
+  GetUserVariable
+  GetUtilityTagName
+  GetUtilityTagType
+  GetUtilityTagUnitCost
+  ManipulateCompositionIFace
+  OpenStorage
+  SetStreamAssayFromDB
+  SetStreamAssayFromOil
+  SetStreamAssayFromXML
+  SetUtilityTagName
+  ShiftPropCurveIFace
+  ShiftPropIFace
+  SpecifyAsFluid
+  SpecifyAsFluidPhase
+  SpecifyAsPropSlate
+  SpecifyAsPropVector
+
+========================================================================
+温度变量对象（MaterialStream.Temperature，RealVariable）—— 单位机制证据
+========================================================================
+[枚举方式] makepy 静态绑定类（_prop_map_get/_prop_map_put + dir）
+[可读属性]
+  Application
+  CalcBy
+  CanModify
+  Description
+  IsInconsistent
+  IsKnown
+  IsValid
+  Parent
+  State
+  UnitConversionType
+  Value
+[可写属性]
+  Value
+[方法]
+  Calculate
+  Erase
+  GetValue
+  SetValue
+
+========================================================================
+压力变量对象（MaterialStream.Pressure，RealVariable）—— 单位机制证据
+========================================================================
+[枚举方式] makepy 静态绑定类（_prop_map_get/_prop_map_put + dir）
+[可读属性]
+  Application
+  CalcBy
+  CanModify
+  Description
+  IsInconsistent
+  IsKnown
+  IsValid
+  Parent
+  State
+  UnitConversionType
+  Value
+[可写属性]
+  Value
+[方法]
+  Calculate
+  Erase
+  GetValue
+  SetValue
+
+========================================================================
+流量变量对象（MaterialStream.MolarFlow，RealVariable）—— 单位机制证据
+========================================================================
+[枚举方式] makepy 静态绑定类（_prop_map_get/_prop_map_put + dir）
+[可读属性]
+  Application
+  CalcBy
+  CanModify
+  Description
+  IsInconsistent
+  IsKnown
+  IsValid
+  Parent
+  State
+  UnitConversionType
+  Value
+[可写属性]
+  Value
+[方法]
+  Calculate
+  Erase
+  GetValue
+  SetValue
+
+========================================================================
+SimulationCase
+========================================================================
+[枚举方式] makepy 静态绑定类（_prop_map_get/_prop_map_put + dir）
+[可读属性]
+  Application
+  BasisManager
+  CaseDataBook
+  CorrelationManager
+  DCSLink
+  DataTables
+  Description
+  EventScheduler
+  Flowsheet
+  FullName
+  IsDirty
+  IsValid
+  Moniker
+  OnlineConnectivityManager
+  Parent
+  Path
+  PicassoHysysInterface
+  ProcessUtilityManager
+  SafetyAnalysisManager
+  Solver
+  TaggedName
+  Title
+  TypeName
+  UniqueID
+  UtilityObjects
+  VariableManager
+  Visible
+  VisibleTypeName
+  name
+[可写属性]
+  FullName
+  Visible
+  name
+[方法]
+  Activate
+  ApplyXML
+  ApplyXMLForOperation
+  ApplyXMLForOperations
+  ApplyXMLFromFile
+  Close
+  CreateUserVariable
+  EnterPseudoBasisEnvironment
+  ExitPseudoEnvironment
+  GetCaseOptimizerStatus
+  GetFlowsheetObjectTypeAndName
+  GetFlowsheetStatus
+  GetUserVariable
+  GetXMLForCase
+  IsOptimizerRunning
+  LoadSnapshotFile
+  OpenStorage
+  ProvideXMLForCase
+  ProvideXMLForOperation
+  ProvideXMLForOperations
+  RestoreSnapshotFile
+  Save
+  SaveAs
+  SaveAs2
+  SaveCopyAs
+  SaveSnapshotFile
+  Trace
+  get_HSI
+  put_VisibleWithPassword
+
+========================================================================
+Flowsheet
+========================================================================
+[枚举方式] makepy 静态绑定类（_prop_map_get/_prop_map_put + dir）
+[可读属性]
+  Application
+  EnergyStreams
+  Flowsheets
+  FluidPackage
+  IsValid
+  MaterialStreams
+  Moniker
+  Operations
+  PFDs
+  Parent
+  Streams
+  TaggedName
+  TypeName
+  UniqueID
+  VisibleTypeName
+  name
+[可写属性]
+  FluidPackage
+  name
+[方法]
+  CreateUserVariable
+  GetOperations
+  GetUserVariable
+  OpenStorage
+
+========================================================================
+FluidPackage
+========================================================================
+[枚举方式] makepy 静态绑定类（_prop_map_get/_prop_map_put + dir）
+[可读属性]
+  Application
+  ComponentList
+  Components
+  IsValid
+  Moniker
+  OpenCOMThermo
+  Parent
+  PropertyPackage
+  PropertyPackageName
+  PropertyVectorNames
+  PropertyVectors
+  ReactionPackage
+  TaggedName
+  TypeName
+  UniqueID
+  UserProperties
+  VisibleTypeName
+  name
+[可写属性]
+  ComponentList
+  OpenCOMThermo
+  PropertyPackageName
+  PropertyVectorNames
+  name
+[方法]
+  ComponentIndices
+  CreateUserVariable
+  GetUserVariable
+  OpenStorage
+
+========================================================================
+BasisManager（SimulationCase.BasisManager）
+========================================================================
+[枚举方式] makepy 静态绑定类（_prop_map_get/_prop_map_put + dir）
+[可读属性]
+  Application
+  CanEndBasisChange
+  CanEndOilChange
+  ComponentLists
+  FluidPackages
+  HypoGroups
+  IsChangingBasis
+  IsChangingOil
+  IsValid
+  Moniker
+  OilManager
+  Parent
+  ReactionPackageManager
+  TaggedName
+  TypeName
+  UniqueID
+  VisibleTypeName
+  name
+[可写属性]
+  name
+[方法]
+  CreateUserVariable
+  EndBasisChange
+  EndOilChange
+  GetUserVariable
+  OpenStorage
+  StartBasisChange
+  StartOilChange
+
+========================================================================
+ComponentList（BasisManager.ComponentLists.Item(0)）
+========================================================================
+[枚举方式] makepy 静态绑定类（_prop_map_get/_prop_map_put + dir）
+[可读属性]
+  Application
+  Components
+  Copy
+  IsValid
+  Moniker
+  Parent
+  TaggedName
+  TypeName
+  UniqueID
+  VisibleTypeName
+  name
+[可写属性]
+  name
+[方法]
+  CreateUserVariable
+  GetUserVariable
+  OpenStorage
+
+========================================================================
+Components（ComponentList.Components）
+========================================================================
+[枚举方式] makepy 静态绑定类（_prop_map_get/_prop_map_put + dir）
+[可读属性]
+  Application
+  Count
+  IsValid
+  Names
+  Parent
+[方法]
+  Add
+  Item
+  Remove
+  RemoveAll
+  index
+
+========================================================================
+MaterialStreams（Flowsheet.MaterialStreams）
+========================================================================
+[枚举方式] makepy 静态绑定类（_prop_map_get/_prop_map_put + dir）
+[可读属性]
+  Application
+  Count
+  IsValid
+  Names
+  Parent
+[方法]
+  Add
+  Item
+  Remove
+  RemoveAll
+  index
+
+========================================================================
+EnergyStreams（Flowsheet.EnergyStreams）
+========================================================================
+[枚举方式] makepy 静态绑定类（_prop_map_get/_prop_map_put + dir）
+[可读属性]
+  Application
+  Count
+  IsValid
+  Names
+  Parent
+[方法]
+  Add
+  Item
+  Remove
+  RemoveAll
+  index
+
+========================================================================
+Operations（Flowsheet.Operations）
+========================================================================
+[枚举方式] makepy 静态绑定类（_prop_map_get/_prop_map_put + dir）
+[可读属性]
+  Application
+  Count
+  IsValid
+  Names
+  Parent
+[方法]
+  Add
+  Item
+  Remove
+  RemoveAll
+  index
+
+========================================================================
+ReactionPackageManager（BasisManager.ReactionPackageManager）
+========================================================================
+[枚举方式] makepy 静态绑定类（_prop_map_get/_prop_map_put + dir）
+[可读属性]
+  Application
+  BasisManager
+  Components
+  IsValid
+  Moniker
+  Parent
+  ReactionSets
+  Reactions
+  TaggedName
+  TypeName
+  UniqueID
+  VisibleTypeName
+  name
+[可写属性]
+  name
+[方法]
+  CreateUserVariable
+  GetUserVariable
+  OpenStorage
+
+========================================================================
+Reactions（ReactionPackageManager.Reactions）
+========================================================================
+[枚举方式] makepy 静态绑定类（_prop_map_get/_prop_map_put + dir）
+[可读属性]
+  Application
+  Count
+  IsValid
+  Names
+  Parent
+[方法]
+  Add
+  Item
+  Remove
+  RemoveAll
+  index
+
+========================================================================
+ReactionSets（ReactionPackageManager.ReactionSets）
+========================================================================
+[枚举方式] makepy 静态绑定类（_prop_map_get/_prop_map_put + dir）
+[可读属性]
+  Application
+  Count
+  IsValid
+  Names
+  Parent
+[方法]
+  Add
+  Item
+  Remove
+  RemoveAll
+  index
+

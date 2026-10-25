@@ -38,6 +38,5 @@ Thumbs.db
 *.log
 
 # HYSYS binary case files
-*.hsc
 *.hscf
 *.bak
