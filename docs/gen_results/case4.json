@@ -1,0 +1,63 @@
+{
+  "id": 4,
+  "prompt": "模拟乙醇在液相中的水解反应，反应器为釜式，已给出动力学参数k=0.05 1/s，活化能 50000 kJ/kmol，进料25℃",
+  "expected": [
+    "cstr"
+  ],
+  "note": "液相 + 动力学参数",
+  "parse_error": null,
+  "spec": {
+    "reactor_type": "cstr",
+    "selection_reason": "用户明确为液相釜式反应器并给出了动力学参数（k=0.05 1/s、活化能 50000 kJ/kmol），按规则液相+动力学选 CSTR；排除 pfr（非管式）、conversion（已有动力学参数，无需转化率法）、equilibrium/gibbs（动力学控制，非平衡控制）。",
+    "components": [
+      "Ethanol",
+      "H2O"
+    ],
+    "reactions": [
+      {
+        "name": "乙醇水解",
+        "equation": "C2H5OH + H2O = C2H5OH + H2O（水解反应方程式待明确）",
+        "stoichiometry": {
+          "Ethanol": -1,
+          "H2O": -1
+        },
+        "type": "conversion",
+        "conversion": null,
+        "basis_component": null
+      }
+    ],
+    "feed": {
+      "T_C": 25,
+      "P_bar": null,
+      "flow": 1000,
+      "flow_unit": "kgmole/h",
+      "flow_basis": "total",
+      "composition": {}
+    },
+    "outlet_spec": {
+      "T_C": null,
+      "P_bar": null
+    },
+    "missing_info": [
+      "乙醇水解的具体反应方程式与产物未给出（水解产物不明确，无法确定化学计量数与反应网络）",
+      "进料压力未给出",
+      "进料组成（摩尔分率）未给出"
+    ],
+    "assumptions": [
+      "进料温度按默认假设 25 °C",
+      "进料总流量按默认假设 1000 kgmole/h（不影响摩尔分率与绝热温度等结果）",
+      "出口压力假设等于进料压力（压降为 0）",
+      "动力学参数 k=0.05 1/s、活化能 50000 kJ/kmol 已记录，但反应方程式与产物未明确，暂无法建立完整动力学反应集"
+    ]
+  },
+  "build_error": null,
+  "result": {
+    "status": "need_clarification",
+    "questions": [
+      "反应器类型 'cstr' 暂未实现建模（当前支持：conversion/equilibrium/gibbs）；cstr/pfr 需要动力学模型，后续版本再支持",
+      "进料压力（feed.P_bar）未给出（bar）",
+      "进料组成（feed.composition）为空——需要各组分摩尔分率"
+    ]
+  },
+  "elapsed_s": 2.5
+}

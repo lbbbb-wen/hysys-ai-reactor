@@ -1,0 +1,96 @@
+{
+  "id": 1,
+  "prompt": "甲烷与空气在过量空气下完全燃烧，进料25℃，1 atm，产物分布未知，模拟绝热燃烧炉出口温度和烟气组成。空气过量100%",
+  "expected": [
+    "gibbs"
+  ],
+  "note": "多反应、产物分布未知",
+  "parse_error": null,
+  "spec": {
+    "reactor_type": "gibbs",
+    "selection_reason": "甲烷与空气完全燃烧，产物分布未知（涉及CO2、H2O、N2、O2及可能的CO、NOx等），无法逐一枚举明确的反应方程式，只能依靠元素守恒与Gibbs自由能最小化预测产物分布，故选gibbs；排除conversion（无转化率数据且产物分布未知）、equilibrium（无法写出明确的可逆反应方程式集合）、cstr/pfr（无动力学参数与设备参数）。",
+    "components": [
+      "Methane",
+      "Oxygen",
+      "Nitrogen",
+      "CO2",
+      "H2O"
+    ],
+    "reactions": [
+      {
+        "name": "甲烷完全燃烧",
+        "equation": "CH4 + 2 O2 -> CO2 + 2 H2O",
+        "stoichiometry": {
+          "Methane": -1,
+          "Oxygen": -2,
+          "CO2": 1,
+          "H2O": 2
+        },
+        "type": "gibbs",
+        "conversion": null,
+        "basis_component": null
+      }
+    ],
+    "feed": {
+      "T_C": 25,
+      "P_bar": 1.01325,
+      "flow": 1000,
+      "flow_unit": "kmol/h",
+      "flow_basis": "total",
+      "composition": {
+        "Methane": 0.047619,
+        "Oxygen": 0.190476,
+        "Nitrogen": 0.761905
+      }
+    },
+    "outlet_spec": {
+      "T_C": null,
+      "P_bar": 1.01325
+    },
+    "missing_info": [],
+    "assumptions": [
+      "空气过量100%（即过量空气系数2，实际供氧为理论量的2倍），按空气组成O2 21%、N2 79%（摩尔分率）计算。",
+      "以1 kmol CH4为基准：理论需O2 2 kmol，实际供O2 4 kmol，配N2 4×79/21=15.0476 kmol，总进料20.0476 kmol；归一化摩尔分率为CH4 0.047619、O2 0.190476、N2 0.761905。",
+      "进料温度未给出，按默认假设25 °C。",
+      "进料压力1 atm换算为1.01325 bar。",
+      "进料流量未给出，按默认假设总流量1000 kmol/h（flow_basis=total），该假设不影响摩尔分率与绝热温度结果。",
+      "出口压力未给出，假设等于进料压力（压降为0），即1.01325 bar。",
+      "绝热燃烧炉出口温度由Gibbs反应器能量平衡计算，outlet_spec.T_C留空。"
+    ]
+  },
+  "build_error": null,
+  "result": {
+    "status": "ok",
+    "reactor_type": "gibbs",
+    "selection_reason": "甲烷与空气完全燃烧，产物分布未知（涉及CO2、H2O、N2、O2及可能的CO、NOx等），无法逐一枚举明确的反应方程式，只能依靠元素守恒与Gibbs自由能最小化预测产物分布，故选gibbs；排除conversion（无转化率数据且产物分布未知）、equilibrium（无法写出明确的可逆反应方程式集合）、cstr/pfr（无动力学参数与设备参数）。",
+    "assumptions": [
+      "空气过量100%（即过量空气系数2，实际供氧为理论量的2倍），按空气组成O2 21%、N2 79%（摩尔分率）计算。",
+      "以1 kmol CH4为基准：理论需O2 2 kmol，实际供O2 4 kmol，配N2 4×79/21=15.0476 kmol，总进料20.0476 kmol；归一化摩尔分率为CH4 0.047619、O2 0.190476、N2 0.761905。",
+      "进料温度未给出，按默认假设25 °C。",
+      "进料压力1 atm换算为1.01325 bar。",
+      "进料流量未给出，按默认假设总流量1000 kmol/h（flow_basis=total），该假设不影响摩尔分率与绝热温度结果。",
+      "出口压力未给出，假设等于进料压力（压降为0），即1.01325 bar。",
+      "绝热燃烧炉出口温度由Gibbs反应器能量平衡计算，outlet_spec.T_C留空。"
+    ],
+    "total_molar_flow_kgmol_h": 1000.0,
+    "outlet": {
+      "T_C": 1159.3020908517296,
+      "P_bar": 1.01325,
+      "composition_molfrac": {
+        "Methane": 3.1589125285103737e-31,
+        "Oxygen": 0.09523799999999999,
+        "Nitrogen": 0.761905,
+        "CO2": 0.047619,
+        "H2O": 0.095238
+      }
+    },
+    "heat_duty": 0.0,
+    "converged": true,
+    "case_file": "C:\\work\\hysys-ai-reactor\\cases\\gen_20261025_210327_gibbs.hsc",
+    "warnings": [
+      "Gibbs Reactor 按自由能最小化计算，spec 中的反应方程式已忽略（不建反应方程）",
+      "未指定出口温度，反应器按绝热操作（热负荷=0）"
+    ]
+  },
+  "elapsed_s": 9.8
+}

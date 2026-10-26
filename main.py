@@ -21,6 +21,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 import argparse
 import json
+import time
 from datetime import datetime, timedelta
 
 import parser as llm_parser
@@ -55,6 +56,10 @@ def _print_result(result):
             % (outlet.get("T_C"), outlet.get("P_bar")))
         if result.get("heat_duty") is not None:
             out("[热负荷] %.4f MW（正值=吸热）" % result["heat_duty"])
+        convs = result.get("conversions") or {}
+        for rname, cv in convs.items():
+            out("[转化率] %s：%.2f%%（按基准组分摩尔流量）"
+                % (rname, cv * 100))
         out("[出口组成（摩尔分率，汽/液加权）]")
         width = max([len(c) for c in comp] + [4])
         for c, x in comp.items():
@@ -71,6 +76,45 @@ def _log_clock():
     out("[时钟] 系统时间 %s，时区偏移 UTC%s" % (lt.strftime("%Y-%m-%d %H:%M:%S"), off))
     if off != timedelta(hours=8):
         out("[提示] 当前时区不是 Asia/Shanghai（UTC+8）；仅提示，不改系统设置")
+
+
+def run_pipeline(text, offline=False):
+    """共用管线：自然语言 -> spec -> 建模结果（供 CLI 与 Web 复用）。
+
+    返回 {"spec", "result", "timings", "error", "stage"}；
+    解析/建模异常不抛出，写入 error + stage（"parser"|"builder"）。
+    """
+    t0 = time.time()
+    # --- 解析 ---
+    try:
+        if offline:
+            offline_fn = getattr(llm_parser, "parse_user_input_offline", None)
+            if offline_fn is None:
+                return {"spec": None, "result": None, "timings": {},
+                        "stage": "parser",
+                        "error": "--offline 规则解析通道尚未在 parser.py 中实现"}
+            spec = offline_fn(text)
+        else:
+            spec = llm_parser.parse_user_input(text)
+    except Exception as exc:
+        return {"spec": None, "result": None,
+                "timings": {"parser_s": round(time.time() - t0, 2)},
+                "stage": "parser", "error": "%s: %s" % (type(exc).__name__, exc)}
+    t1 = time.time()
+    # --- 建模 ---
+    try:
+        result = builder.build_from_spec(spec)
+    except Exception as exc:
+        return {"spec": spec, "result": None,
+                "timings": {"parser_s": round(t1 - t0, 2),
+                            "builder_s": round(time.time() - t1, 2)},
+                "stage": "builder", "error": "%s: %s" % (type(exc).__name__, exc)}
+    t2 = time.time()
+    return {"spec": spec, "result": result,
+            "timings": {"parser_s": round(t1 - t0, 2),
+                        "builder_s": round(t2 - t1, 2),
+                        "total_s": round(t2 - t0, 2)},
+            "stage": None, "error": None}
 
 
 def main(argv=None):
@@ -104,33 +148,18 @@ def main(argv=None):
         out("[错误] 请提供自然语言描述，或用 --file 指定提示词文件。")
         return 2
 
-    # --- 解析 ---
-    try:
-        if args.offline:
-            offline = getattr(llm_parser, "parse_user_input_offline", None)
-            if offline is None:
-                out("[错误] --offline 规则解析通道尚未在 parser.py 中实现，"
-                    "请去掉 --offline 使用 LLM 解析。")
-                return 2
-            spec = offline(text)
-        else:
-            spec = llm_parser.parse_user_input(text)
-    except Exception as exc:
-        out("[解析失败] %s: %s" % (type(exc).__name__, exc))
+    # --- 解析 + 建模（共用管线，与 Web 入口一致）---
+    pipe = run_pipeline(text, offline=args.offline)
+    if pipe["stage"] == "parser":
+        out("[解析失败] %s" % pipe["error"])
         return 2
-
+    spec = pipe["spec"]
     _print_spec_brief(spec)
     out("[spec] %s" % json.dumps(spec, ensure_ascii=False))
-
-    # --- 建模 ---
-    try:
-        result = builder.build_from_spec(spec)
-    except builder.core.HysysError as exc:
-        out("[建模失败] %s" % exc)
+    if pipe["stage"] == "builder":
+        out("[建模失败] %s" % pipe["error"])
         return 3
-    except Exception as exc:
-        out("[建模失败] %s: %s" % (type(exc).__name__, exc))
-        return 3
+    result = pipe["result"]
 
     if args.save:
         try:

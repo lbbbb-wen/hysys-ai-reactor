@@ -17,6 +17,7 @@ Keq 说明（equilibrium 反应）：
 
 import math
 import os
+import re
 import time
 
 from hysys import core, units
@@ -43,6 +44,23 @@ LIQUID_NAME = "Product-Liquid"
 ENERGY_NAME = "Q-Reactor"
 REACTOR_NAME = "RX-1"
 REACTION_SET_NAME = "RS-1"
+
+
+def _reaction_name(rspec, index):
+    """反应名清洗为 HYSYS 安全的 ASCII 短名（中文/长名会显示成问号）。
+
+    parser 已要求 LLM 直接输出通用英文缩写（SMR/WGS/TDP-1 等），
+    这里只做兜底：紧凑缩写（无空格、ASCII）原样大写采用；英文全名
+    取首字母缩写（Steam Methane Reforming -> SMR）；纯中文名等
+    无英文可用的情形退化为 RXN{序号}。"""
+    raw = (rspec.get("name") or "").strip()
+    if raw and " " not in raw and all(ord(c) < 128 for c in raw):
+        compact = re.sub(r"[^A-Za-z0-9_-]", "", raw).upper()[:16]
+        if compact:
+            return compact
+    words = re.findall(r"[A-Za-z]+", raw)
+    abbr = "".join(w[0].upper() for w in words)[:10]
+    return abbr or "RXN%d" % (index + 1)
 
 
 def _fail(step, detail):
@@ -174,7 +192,7 @@ def _build_reactions(case, spec, outlet_t_c, warnings, comp_map=None):
              lambda: rs.AssociateFluidPackage(fp))
 
     for i, rspec in enumerate(reactions):
-        rname = rspec.get("name") or "RXN-%d" % (i + 1)
+        rname = _reaction_name(rspec, i)
         rtype = rspec.get("type")
         tag = "反应 %s" % rname
         if rtype not in REACTION_TYPES:
@@ -245,6 +263,27 @@ def _build_reactions(case, spec, outlet_t_c, warnings, comp_map=None):
     return rs
 
 
+def _check_shared_basis(spec):
+    """永久防线：多个 conversion 反应共享同一 basis_component 时，
+    HYSYS 会按顺序独立结算每条反应的转化率，总转化率叠加为
+    1-(1-x)^n（如三条 50% 变 87.5%），结果错误。命中即拒绝建模。"""
+    seen = {}
+    for i, r in enumerate(spec.get("reactions") or []):
+        if (r.get("type") or "").strip().lower() != "conversion":
+            continue
+        bc = (r.get("basis_component") or "").strip().lower()
+        if not bc:
+            continue
+        rname = r.get("name") or "RXN-%d" % (i + 1)
+        if bc in seen:
+            return ("检测到多个 conversion 反应共享基组分 %s"
+                    "（反应 %s 与 %s），会导致转化率叠加。"
+                    "请合并为单反应+分数系数，或在 builder 中启用均摊模式"
+                    % (r.get("basis_component"), seen[bc], rname))
+        seen[bc] = rname
+    return None
+
+
 def validate_spec(spec):
     """建模前置校验：返回缺失字段的中文说明列表（空列表 = 齐全）。
 
@@ -284,7 +323,7 @@ def _verify_reactions(case, spec):
     rpm = core.com("完整性检查：获取 ReactionPackageManager",
                    lambda: case.BasisManager.ReactionPackageManager)
     for i, rspec in enumerate(spec.get("reactions") or []):
-        rname = rspec.get("name") or "RXN-%d" % (i + 1)
+        rname = _reaction_name(rspec, i)
         rtype = rspec.get("type")
         try:
             rxn = rpm.Reactions.Item(rname)
@@ -344,6 +383,9 @@ def build_from_spec(spec):
     problems = validate_spec(spec)
     if problems:
         return {"status": "need_clarification", "questions": problems}
+    shared = _check_shared_basis(spec)
+    if shared:
+        return {"status": "error", "message": shared}
     holder = {}
     try:
         return _build_from_spec_impl(spec, holder)
@@ -434,6 +476,7 @@ def _build_from_spec_impl(spec, holder):
         if rxn_problems:
             core.com("保存 case（完整性检查未通过，未求解）",
                      lambda: case.Save())
+            core.show_case(case)  # 演示：弹出最终 case 窗口
             warnings.append("反应完整性检查未通过，已跳过求解："
                             + "；".join(rxn_problems))
             return {"status": "ok", "reactor_type": reactor_type,
@@ -591,7 +634,7 @@ def _build_from_spec_impl(spec, holder):
     conversions = {}
     feed_x = composition  # 已翻译为实际组分名
     for i, rspec in enumerate(spec.get("reactions") or []):
-        rname = rspec.get("name") or "RXN-%d" % (i + 1)
+        rname = _reaction_name(rspec, i)
         stoich = {comp_map.get(k, k): v
                   for k, v in (rspec.get("stoichiometry") or {}).items()}
         if not stoich:
@@ -652,6 +695,7 @@ def _build_from_spec_impl(spec, holder):
         warnings.append("结果完整性断言未通过：" + "；".join(integrity))
 
     core.com("保存 case", lambda: case.Save())
+    core.show_case(case)  # 演示：求解结束后弹出最终 case 窗口
 
     return {"status": "ok", "reactor_type": reactor_type,
             "selection_reason": spec.get("selection_reason", ""),

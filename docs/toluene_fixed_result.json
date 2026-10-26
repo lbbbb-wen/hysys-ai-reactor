@@ -1,0 +1,81 @@
+{
+  "prompt": "模拟甲苯歧化制苯和二甲苯，按转化率反应建模，甲苯单程转化率50%。进料：纯甲苯 1000 kgmole/h，25 °C、1 bar。二甲苯产物中邻:间:对约为1:2:1。",
+  "spec": {
+    "reactor_type": "conversion",
+    "selection_reason": "用户明确给出甲苯单程转化率50%，无动力学参数，故选用转化率反应器；反应方程式明确（甲苯歧化生成苯和二甲苯），不属于只能靠Gibbs自由能最小化预测产物分布的体系，因此排除gibbs；有转化率数据，不选equilibrium；无动力学参数，不选pfr/cstr。",
+    "components": [
+      "Toluene",
+      "Benzene",
+      "o-Xylene",
+      "m-Xylene",
+      "p-Xylene"
+    ],
+    "reactions": [
+      {
+        "name": "TDP",
+        "equation": "2 Toluene -> Benzene + o-Xylene + m-Xylene + p-Xylene (o:m:p = 1:2:1)",
+        "stoichiometry": {
+          "Toluene": -2,
+          "Benzene": 1,
+          "o-Xylene": 0.25,
+          "m-Xylene": 0.5,
+          "p-Xylene": 0.25
+        },
+        "type": "conversion",
+        "conversion": 50,
+        "basis_component": "Toluene"
+      }
+    ],
+    "feed": {
+      "T_C": 25,
+      "P_bar": 1,
+      "flow": 1000,
+      "flow_unit": "kgmole/h",
+      "flow_basis": "total",
+      "composition": {
+        "Toluene": 1.0
+      }
+    },
+    "outlet_spec": {
+      "T_C": null,
+      "P_bar": 1
+    },
+    "missing_info": [],
+    "assumptions": [
+      "二甲苯产物按邻:间:对=1:2:1分配，以单条反应加分数系数表达，避免多条转化率反应叠加导致转化率虚高",
+      "出口压力未给出，假设等于进料压力1 bar（压降为0）",
+      "进料为纯甲苯，摩尔分率1.0"
+    ]
+  },
+  "result": {
+    "status": "ok",
+    "reactor_type": "conversion",
+    "selection_reason": "用户明确给出甲苯单程转化率50%，无动力学参数，故选用转化率反应器；反应方程式明确（甲苯歧化生成苯和二甲苯），不属于只能靠Gibbs自由能最小化预测产物分布的体系，因此排除gibbs；有转化率数据，不选equilibrium；无动力学参数，不选pfr/cstr。",
+    "assumptions": [
+      "二甲苯产物按邻:间:对=1:2:1分配，以单条反应加分数系数表达，避免多条转化率反应叠加导致转化率虚高",
+      "出口压力未给出，假设等于进料压力1 bar（压降为0）",
+      "进料为纯甲苯，摩尔分率1.0"
+    ],
+    "total_molar_flow_kgmol_h": 1000.0,
+    "outlet": {
+      "T_C": 24.836252771435625,
+      "P_bar": 1.0,
+      "composition_molfrac": {
+        "Toluene": 0.5,
+        "Benzene": 0.25,
+        "o-Xylene": 0.0625,
+        "m-Xylene": 0.125,
+        "p-Xylene": 0.0625
+      }
+    },
+    "conversions": {
+      "TDP": 0.5
+    },
+    "heat_duty": 0.0,
+    "converged": true,
+    "case_file": "C:\\work\\hysys-ai-reactor\\cases\\gen_20261026_161317_conversion.hsc",
+    "warnings": [
+      "未指定出口温度，反应器按绝热操作（热负荷=0）"
+    ]
+  }
+}

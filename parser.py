@@ -64,7 +64,9 @@ HYSYS 反应器建模指令。你只输出一个 JSON 对象：不要 markdown �
    苯 Benzene，甲苯 Toluene，邻/间/对二甲苯 o-Xylene/m-Xylene/p-Xylene，
    乙醇 Ethanol。不确定的组分名写最常见的 HYSYS 库名。
 3. 异构体混合物（如"二甲苯"）必须拆成多个明确组分（o-Xylene、
-   m-Xylene、p-Xylene），拆分比例假设写入 assumptions。
+   m-Xylene、p-Xylene）进入 components 与 feed.composition，
+   拆分比例假设写入 assumptions；但反应方程式必须按第 11 条合并为
+   单反应+分数系数，不得按异构体拆成多条反应。
 4. 流量单位必须显式给出（kg/h、kmol/h 等），并如实保留用户给的单位；
    质量流量（kg/h）不得自行换算成摩尔流量。
    feed.flow_basis 表示 flow 的语义："total"=混合物总流量；
@@ -75,22 +77,45 @@ HYSYS 反应器建模指令。你只输出一个 JSON 对象：不要 markdown �
 5. stoichiometry 中反应物系数为负、产物为正，数值为化学计量数；
    conversion 型反应填 conversion（百分数）与 basis_component；
    equilibrium/gibbs 型这两项为 null。
-6. missing_info 只填建模必需的缺口（如反应器类型完全无法判断、
-   既无反应也无进料）；非必需参数自行做合理假设并写入 assumptions。
-   当 missing_info 非空时：reactor_type 必须输出 null，
-   selection_reason 必须写"信息不足，无法判断反应器类型"；
-   禁止臆断一个占位类型。只有信息足够建模时才给出具体 reactor_type。
+6. missing_info 只填建模必需的缺口（如进料流量未给出）；非必需参数
+   自行做合理假设并写入 assumptions。
+   选型与缺口分离：只要反应体系可识别（知道反应物/产物），即使进料
+   条件不完整，也必须照常给出 reactor_type 与 selection_reason；
+   reactor_type 为 null 的唯一情形是反应体系完全无法识别
+   （例如只说"帮我模拟一个反应"），此时 selection_reason 写
+   "信息不足，无法判断反应器类型"。禁止臆断一个占位类型。
    一致性要求：凡关键字段（components、reactions、feed.T_C、feed.P_bar、
-   feed.flow、feed.composition）为 null 或空，且你没有给出明确数值假设，
+   feed.composition）为 null 或空，且你没有给出明确数值假设，
    必须把该项加入 missing_info；missing_info 非空时不得声称可以建模。
    进料温度未给出时直接假设 25 °C 并写入 assumptions，不列入 missing_info。
+   进料流量未给出时直接假设总流量 1000 kgmole/h（flow_basis="total"）
+   并写入 assumptions（说明该假设不影响摩尔分率/绝热温度等结果），
+   不列入 missing_info。
+   出口压力未给出时假设等于进料压力（压降为 0）并写入 assumptions，
+   不列入 missing_info。
 7. feed.composition 的键为 HYSYS 库组分名，值为摩尔分率（数值），
    各值之和应为 1；用户给的是比例时归一化后填入，并在 assumptions 说明。
-8. 用户未给定的压力/流量保持 null，不要编造；进料温度按第 6 条处理。
+8. 用户未给定的进料压力保持 null 并进 missing_info，不要编造；
+   出口压力、流量、进料温度按第 6 条的默认假设处理。
+   出口温度未给定时 outlet_spec.T_C 必须保持 null——禁止假设等于
+   进料温度或填任何猜测值（未指定出口温度即绝热操作，出口温度由
+   能量平衡计算），并在 assumptions 写明："未指定出口温度，
+   反应器按绝热操作，出口温度由能量平衡计算"。
 
 
 9. 温度一律用摄氏度的数值（T_C），压力用 bar 的数值（P_bar）；
    用户给 MPa、kPa 时换算成 bar 填入并在 assumptions 说明换算。
+10. 每个反应的 name 用该反应体系的通用英文缩写（大写字母/数字/-/_，
+    不超过 12 个字符），例如甲烷蒸汽重整=SMR、水汽变换=WGS、
+    甲苯歧化=TDP、乙苯脱氢=EBDH；同一体系多个同类反应时用 -1/-2
+    编号（如 TDP-1、TDP-2）。禁止中文名和长句。
+11. 同一反应的产物若含同分异构体（如二甲苯的 o/m/p 三种），必须用
+    单条反应+分数系数表达（如 stoichiometry 里 o-Xylene:0.25,
+    m-Xylene:0.5, p-Xylene:0.25），禁止按异构体拆成多条
+    Conversion/Equilibrium 反应——HYSYS 会把多条独立转化率反应按
+    顺序叠加结算，导致总转化率虚高（三条 50% 变 87.5%）。
+12. components 只列进料组成与所有反应化学计量中实际出现的组分，
+    禁止多列任何未参与反应的组分（如凭空加 Hydrogen、Nitrogen）。
 """
 
 
@@ -198,8 +223,9 @@ def parse_user_input(text):
     missing = [k for k in required if k not in data]
     if missing:
         raise RuntimeError("模型输出缺少必需键 %s：\n%s" % (missing, raw))
-    # 契约兜底：missing_info 非空时不允许臆断 reactor_type
-    if data["missing_info"]:
+    # 契约兜底：反应体系完全无法识别（组分与反应都为空）时，
+    # 不允许臆断 reactor_type；体系可识别则保留选型（缺口走 missing_info）
+    if not data.get("components") and not data.get("reactions"):
         data["reactor_type"] = None
         data["selection_reason"] = "信息不足，无法判断反应器类型"
     return data

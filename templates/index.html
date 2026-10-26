@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 驱动的 HYSYS 反应器智能建模</title>
+<style>
+  :root { --bg:#0f1419; --card:#1a2129; --border:#2c3742; --fg:#dde5ec;
+          --dim:#8b98a5; --accent:#4da3ff; --ok:#3fb96b; --warn:#e0a13e;
+          --bad:#e05e5e; --mono:Consolas,"Courier New",monospace; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font-family:"Microsoft YaHei","Segoe UI",sans-serif; }
+  main { max-width:920px; margin:0 auto; padding:24px 16px 60px; }
+  h1 { font-size:20px; margin:8px 0 20px; }
+  .card { background:var(--card); border:1px solid var(--border);
+          border-radius:10px; padding:16px 18px; margin:14px 0; }
+  textarea { width:100%; min-height:90px; background:#0c1116; color:var(--fg);
+             border:1px solid var(--border); border-radius:8px; padding:10px;
+             font-size:14px; resize:vertical; font-family:inherit; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+  button { background:#24303c; color:var(--fg); border:1px solid var(--border);
+           border-radius:8px; padding:8px 16px; font-size:14px; cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); color:#081018; font-weight:600; }
+  button:disabled { opacity:.55; cursor:not-allowed; }
+  .badge { display:inline-block; font-family:var(--mono); font-size:26px;
+           font-weight:700; padding:6px 18px; border-radius:8px;
+           background:#12283d; color:var(--accent); letter-spacing:1px; }
+  .reason { color:var(--dim); margin-top:10px; line-height:1.7; font-size:14px; }
+  ul { margin:8px 0; padding-left:22px; line-height:1.9; }
+  .tag { font-size:12px; color:var(--warn); border:1px solid var(--warn);
+         border-radius:4px; padding:1px 6px; margin-right:6px; }
+  .clarify { border-color:var(--warn); background:#241d10; }
+  .clarify h3 { color:var(--warn); margin:4px 0 8px; font-size:15px; }
+  .err { border-color:var(--bad); background:#2a1414; }
+  .err h3 { color:var(--bad); margin:4px 0 8px; font-size:15px; }
+  .mono { font-family:var(--mono); }
+  .kv { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+        gap:10px; margin:10px 0; }
+  .kv div { background:#0c1116; border:1px solid var(--border);
+            border-radius:8px; padding:10px; }
+  .kv .k { color:var(--dim); font-size:12px; }
+  .kv .v { font-family:var(--mono); font-size:17px; margin-top:4px; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+  .tablewrap { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:14px; }
+  th,td { border:1px solid var(--border); padding:7px 12px; text-align:left;
+          white-space:nowrap; }
+  th { background:#10161d; color:var(--dim); font-weight:600; }
+  td.num { font-family:var(--mono); text-align:right; }
+  .hidden { display:none; }
+  .path { font-family:var(--mono); font-size:12px; color:var(--dim);
+          word-break:break-all; }
+  .timing { color:var(--dim); font-size:13px; font-family:var(--mono); }
+  h3 { font-size:15px; margin:4px 0 10px; color:var(--fg); }
+</style>
+</head>
+<body>
+<main>
+  <h1>AI 驱动的 HYSYS 反应器智能建模</h1>
+
+  <!-- a) 输入区 -->
+  <div class="card">
+    <textarea id="txt" placeholder="用自然语言描述反应场景，例如：甲烷与水蒸气 1:2.7，进料 520°C、13.5 bar，出口 710°C，求平衡产物分布"></textarea>
+    <div class="row">
+      <button id="ex1">示例：甲烷蒸汽重整</button>
+      <button id="ex2">示例：甲苯歧化</button>
+      <button id="go" class="primary">开始建模</button>
+    </div>
+  </div>
+
+  <!-- b) 选型卡片 -->
+  <div id="typeCard" class="card hidden">
+    <span class="badge" id="rType"></span>
+    <div class="reason" id="rReason"></div>
+  </div>
+
+  <!-- c) 假设区 -->
+  <div id="assumeCard" class="card hidden">
+    <h3>建模假设</h3>
+    <ul id="assumptions"></ul>
+  </div>
+
+  <!-- d) 澄清区 -->
+  <div id="clarifyCard" class="card clarify hidden">
+    <h3>需要澄清 —— 未建模，等待补充信息</h3>
+    <ul id="questions"></ul>
+  </div>
+
+  <!-- 错误区 -->
+  <div id="errCard" class="card err hidden">
+    <h3 id="errTitle">失败</h3>
+    <div id="errMsg" class="mono" style="font-size:13px;word-break:break-all"></div>
+  </div>
+
+  <!-- e) 结果区 -->
+  <div id="resultCard" class="card hidden">
+    <h3>建模结果</h3>
+    <div class="kv">
+      <div><div class="k">收敛状态</div><div class="v" id="conv"></div></div>
+      <div><div class="k">出口温度</div><div class="v" id="tout"></div></div>
+      <div><div class="k">出口压力</div><div class="v" id="pout"></div></div>
+      <div><div class="k">热负荷</div><div class="v" id="duty"></div></div>
+    </div>
+    <div id="convList"></div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>组分</th><th>摩尔分率</th><th>质量分率</th></tr></thead>
+        <tbody id="compBody"></tbody>
+      </table>
+    </div>
+    <p class="path" id="casePath"></p>
+    <p class="timing" id="timing"></p>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const EXAMPLES = {
+  ex1: "模拟甲烷蒸汽重整，按平衡反应建模。" +
+       "进料：甲烷 1000 kgmole/h、水蒸气 2700 kgmole/h，" +
+       "520 °C、13.5 bar。出口温度 710 °C。",
+  ex2: "甲苯歧化制苯，进料10000 kg/h纯甲苯，380°C、2.5 MPa，" +
+       "甲苯单程转化率50%，产物苯与二甲苯（邻:间:对约1:2:1）"
+};
+$("ex1").onclick = () => $("txt").value = EXAMPLES.ex1;
+$("ex2").onclick = () => $("txt").value = EXAMPLES.ex2;
+
+function show(id, on) { $(id).classList.toggle("hidden", !on); }
+function esc(s) { const d = document.createElement("div");
+  d.textContent = s; return d.innerHTML; }
+function num(v, d) { return (v === null || v === undefined) ? "—"
+  : Number(v).toFixed(d === undefined ? 6 : d); }
+
+$("go").onclick = async () => {
+  const text = $("txt").value.trim();
+  if (!text) { $("txt").focus(); return; }
+  const btn = $("go");
+  btn.disabled = true; btn.textContent = "建模中…（正在驱动 HYSYS）";
+  ["typeCard","assumeCard","clarifyCard","errCard","resultCard"]
+    .forEach(i => show(i, false));
+  let data;
+  try {
+    const resp = await fetch("/api/simulate", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({text})
+    });
+    data = await resp.json();
+  } catch (e) {
+    data = {ok:false, stage:"network", error:String(e)};
+  }
+  btn.disabled = false; btn.textContent = "开始建模";
+  render(data);
+};
+
+function render(data) {
+  const t = data.timings || {};
+  if (!data.ok) {
+    show("errCard", true);
+    $("errTitle").textContent = "失败（阶段：" + (data.stage || "?") + "）";
+    $("errMsg").textContent = data.error || "未知错误";
+    return;
+  }
+  const spec = data.spec || {}, result = data.result || {};
+
+  // 选型卡片
+  show("typeCard", true);
+  $("rType").textContent = spec.reactor_type || "待定";
+  $("rReason").textContent = spec.selection_reason || "";
+
+  // 假设
+  const assumptions = spec.assumptions || [];
+  if (assumptions.length) {
+    show("assumeCard", true);
+    $("assumptions").innerHTML = assumptions.map(
+      a => "<li><span class='tag'>AI 自行假设</span>" + esc(a) + "</li>"
+    ).join("");
+  }
+
+  // 澄清
+  if (result.status === "need_clarification") {
+    show("clarifyCard", true);
+    $("questions").innerHTML = (result.questions || []).map(
+      q => "<li>" + esc(q) + "</li>").join("");
+    return;
+  }
+  if (result.status !== "ok") {
+    show("errCard", true);
+    $("errTitle").textContent = "建模失败";
+    $("errMsg").textContent = result.message || JSON.stringify(result);
+    return;
+  }
+
+  // 结果
+  show("resultCard", true);
+  const conv = result.converged === true;
+  $("conv").innerHTML = conv ? "<span class='ok'>是</span>"
+                             : "<span class='bad'>否</span>";
+  const outlet = result.outlet || {};
+  $("tout").textContent = outlet.T_C != null ? num(outlet.T_C, 2) + " °C" : "—";
+  $("pout").textContent = outlet.P_bar != null ? num(outlet.P_bar, 4) + " bar" : "—";
+  $("duty").textContent = result.heat_duty != null
+    ? num(result.heat_duty, 4) + " MW" : "—";
+
+  const convs = result.conversions || {};
+  $("convList").innerHTML = Object.entries(convs).map(([k, v]) =>
+    "<p class='mono' style='font-size:14px'>转化率 " + esc(k) +
+    "：<b>" + (v * 100).toFixed(2) + "%</b>（按基准组分摩尔流量）</p>"
+  ).join("");
+
+  const rows = data.outlet_table || [];
+  $("compBody").innerHTML = rows.map(r =>
+    "<tr><td>" + esc(r.component) + "</td><td class='num'>" +
+    num(r.mol_frac) + "</td><td class='num'>" + num(r.mass_frac) +
+    "</td></tr>").join("");
+
+  $("casePath").textContent = "case 文件（可在 HYSYS GUI 打开复核）：" +
+    (result.case_file || "—");
+  $("timing").textContent = "耗时：parser " + num(t.parser_s, 1) +
+    " s / 建模 " + num(t.builder_s, 1) + " s / 总计 " + num(t.total_s, 1) + " s";
+
+  const warns = result.warnings || [];
+  if (warns.length) {
+    $("convList").innerHTML += warns.map(w =>
+      "<p style='color:var(--warn);font-size:13px'>⚠ " + esc(w) + "</p>"
+    ).join("");
+  }
+}
+</script>
+</body>
+</html>

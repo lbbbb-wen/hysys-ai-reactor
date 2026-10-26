@@ -1,0 +1,37 @@
+系统时钟检查报告
+检查时间（改后本地）：2026-10-25 20:53:51
+============================================================
+
+【改前状态】
+- 本地时间：2026-10-25 12:53:19（即 UTC 时间）
+- 时区设置：UTC —— (UTC) Coordinated Universal Time（不是 Asia/Shanghai）
+- NTP 同步状态（w32tm /query /status）：
+    Leap Indicator : 0 (no warning)
+    Stratum        : 4 (secondary reference - syncd by (S)NTP)
+    Source         : VM IC Time Synchronization Provider
+    Last Successful Sync Time : 10/25/2026 12:53:04 PM（查询前 15 秒刚同步）
+    Root Delay / Dispersion   : 0.0148s / 0.0100s
+  结论：时钟走时准确（虚拟机宿主机时间同步正常），无需 w32tm /resync；
+        唯一问题是时区配置为 UTC。
+
+【与真实时间比对】
+- w32tm /stripchart /computer:time.windows.com（改时区后测）：
+    20:53:51, +00.0003829s
+    20:53:53, -00.0013692s
+  本机与 time.windows.com 偏差 < 2 毫秒，远小于 5 分钟阈值 → 未执行 resync。
+
+【执行的操作】
+- 时钟偏差 < 5 分钟：未执行 w32tm /resync
+- 时区不是 Asia/Shanghai：已执行
+      Set-TimeZone -Id "China Standard Time"
+  （无需额外提权，命令一次成功）
+
+【改后状态】
+- 时区设置：China Standard Time
+- 本地时间：2026-10-25 20:53:50（= 12:53:50 UTC + 8 小时，换算正确）
+- NTP 源不变：VM IC Time Synchronization Provider，
+  Last Successful Sync Time 显示也已切换为东八区（20:53:36）
+
+【结论】
+时钟走时一直准确（毫秒级）；问题仅为时区配置 UTC → 已改为 China Standard Time。
+main.py 的时钟检查提示（UTC+0 非 Asia/Shanghai）此后不会再触发。

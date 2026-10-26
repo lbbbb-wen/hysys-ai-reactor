@@ -1,0 +1,22 @@
+Reaction 对象 Phase/Basis 相关属性诊断
+============================================================
+
+[equilibriumrxn 新建（未设置任何 Phase/Basis）]
+  Basis = 1
+  BasisUnits = ''
+  BasisUnits2 = ''
+  LogBasis = False
+  ReactionPhase = 0
+
+[ReactionPhase 写入/读回测试（equilibriumrxn）]
+  写 0(VapourOnly) -> 读回 0
+  写 1(LiquidOnly) -> 读回 1
+  写 5(Overall) -> 读回 5
+
+[Basis 写入/读回测试]
+  写 2(rbPartialPressBasis) -> 读回 2
+
+[conversionrxn 新建]
+  ReactionPhase = 5
+
+[conversionrxn] 写 Phase=0(Vapour) -> 读回 0

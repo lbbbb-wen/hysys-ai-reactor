@@ -1,0 +1,89 @@
+{
+  "id": 2,
+  "prompt": "模拟合成氨反应：N2 + 3H2 -> 2NH3，进料25℃、200 atm、氢氮比3:1，单程转化率15%，绝热反应器",
+  "expected": [
+    "conversion",
+    "equilibrium"
+  ],
+  "note": "给了转化率故 conversion 更合适；equilibrium 需看理由",
+  "parse_error": null,
+  "spec": {
+    "reactor_type": "conversion",
+    "selection_reason": "用户给出了明确的单程转化率15%，且反应方程式明确（N2+3H2→2NH3），无动力学参数，因此选转化率反应器（conversion）；不选equilibrium/gibbs是因为已给定转化率而非依赖平衡计算，不选pfr/cstr是因为没有动力学或设备参数。",
+    "components": [
+      "Nitrogen",
+      "Hydrogen",
+      "Ammonia"
+    ],
+    "reactions": [
+      {
+        "name": "氨合成",
+        "equation": "N2 + 3H2 -> 2NH3",
+        "stoichiometry": {
+          "Nitrogen": -1,
+          "Hydrogen": -3,
+          "Ammonia": 2
+        },
+        "type": "conversion",
+        "conversion": 15,
+        "basis_component": "Nitrogen"
+      }
+    ],
+    "feed": {
+      "T_C": 25,
+      "P_bar": 202.65,
+      "flow": 1000,
+      "flow_unit": "kmol/h",
+      "flow_basis": "total",
+      "composition": {
+        "Nitrogen": 0.25,
+        "Hydrogen": 0.75
+      }
+    },
+    "outlet_spec": {
+      "T_C": null,
+      "P_bar": 202.65
+    },
+    "missing_info": [],
+    "assumptions": [
+      "进料压力200 atm换算为202.65 bar",
+      "进料流量未给出，假设总流量1000 kmol/h（不影响摩尔分率与绝热温升结果）",
+      "氢氮比3:1即H2摩尔分率0.75、N2摩尔分率0.25",
+      "转化率15%以氮气为基准组分",
+      "出口压力假设等于进料压力（压降为0）",
+      "绝热反应器，出口温度由绝热计算确定，不指定"
+    ]
+  },
+  "build_error": null,
+  "result": {
+    "status": "ok",
+    "reactor_type": "conversion",
+    "selection_reason": "用户给出了明确的单程转化率15%，且反应方程式明确（N2+3H2→2NH3），无动力学参数，因此选转化率反应器（conversion）；不选equilibrium/gibbs是因为已给定转化率而非依赖平衡计算，不选pfr/cstr是因为没有动力学或设备参数。",
+    "assumptions": [
+      "进料压力200 atm换算为202.65 bar",
+      "进料流量未给出，假设总流量1000 kmol/h（不影响摩尔分率与绝热温升结果）",
+      "氢氮比3:1即H2摩尔分率0.75、N2摩尔分率0.25",
+      "转化率15%以氮气为基准组分",
+      "出口压力假设等于进料压力（压降为0）",
+      "绝热反应器，出口温度由绝热计算确定，不指定"
+    ],
+    "total_molar_flow_kgmol_h": 1000.0,
+    "outlet": {
+      "T_C": 149.44468252996217,
+      "P_bar": 202.65,
+      "composition_molfrac": {
+        "Nitrogen": 0.22972972972972971,
+        "Hydrogen": 0.6891891891891891,
+        "Ammonia": 0.08108108108108107
+      }
+    },
+    "heat_duty": 0.0,
+    "converged": true,
+    "case_file": "C:\\work\\hysys-ai-reactor\\cases\\gen_20261025_210335_conversion.hsc",
+    "warnings": [
+      "检测到白名单外组分 ['Methane']，尝试移除",
+      "未指定出口温度，反应器按绝热操作（热负荷=0）"
+    ]
+  },
+  "elapsed_s": 5.2
+}

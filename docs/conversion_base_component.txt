@@ -1,0 +1,24 @@
+Conversion 反应 BaseComponent 赋值方式诊断
+============================================================
+组分列表: ('Methane', 'Toluene', 'Benzene', 'o-Xylene', 'm-Xylene', 'p-Xylene')
+
+[匹配 Base|Basis|Comp 的属性]
+  BaseComponent -> EXC (-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2147467259), None)
+
+[分数化学计量写入测试]
+  写 (-2, 1, 0.25) 成功，读回 (-2.0, 1.0, 0.25)
+
+[BaseComponent 写法 a：字符串 'Toluene']
+  失败：(-2147352571, 'Type mismatch.', None, 1)
+
+[BaseComponent 写法 b：组分对象 fp.Components.Item]
+  fp.Components.Item('Toluene') 取到：'Toluene' (type Component)
+  成功，读回 <win32com.gen_py.HYSYS 15.0 Type Library.Component instance at 0x2043962309472>
+
+[BaseComponent 写法 c：ComponentLists 里的组分对象]
+  成功，读回 <win32com.gen_py.HYSYS 15.0 Type Library.Component instance at 0x2044001039952>
+
+[BaseComponent 上的 SetValue/SetValues 接口]
+  BaseComponent 当前值类型：Component = <win32com.gen_py.HYSYS 15.0 Type Library.Component instance at 0x2044001039952>
+  其 Set* 方法：['SetUNIFAC']
+[ConversionValue=50] 失败：'<win32com.gen_py.HYSYS 15.0 Type Library.ConversionReaction instance at 0x2043962309520>' object has no attribute 'Conv

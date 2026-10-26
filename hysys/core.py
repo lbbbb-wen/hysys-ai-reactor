@@ -13,7 +13,9 @@ V15 实测约束（详见 docs/gotchas.md 与 docs/com_api_dump.txt）：
 
 import difflib
 import hashlib
+import json
 import os
+import re
 import time
 import traceback
 
@@ -24,7 +26,7 @@ except ImportError:
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(HERE)
-TEMPLATE = os.path.join(PROJECT_ROOT, "templates", "blank_pr.hsc")
+TEMPLATE = os.path.join(PROJECT_ROOT, "templates", "blank_clean.hsc")
 CASES_DIR = os.path.join(PROJECT_ROOT, "cases")
 
 EMPTY_VALUE = -32767.0
@@ -36,7 +38,7 @@ KNOWN_LIBRARY_COMPONENTS = (
     "Hydrogen", "Nitrogen", "Oxygen", "CO", "CO2", "H2O", "H2S",
     "Methane", "Ethane", "Ethylene", "Propane", "Propylene",
     "i-Butane", "n-Butane", "1-Butene", "n-Pentane", "n-Hexane",
-    "n-Heptane", "n-Octane", "Benzene", "Toluene", "Ethylbenzene",
+    "n-Heptane", "n-Octane", "Benzene", "Toluene", "E-Benzene",
     "o-Xylene", "m-Xylene", "p-Xylene", "Methanol", "Ethanol",
     "1-Propanol", "2-Propanol", "Acetone", "Ammonia",
 )
@@ -107,7 +109,27 @@ def connect():
     except Exception:
         _app = com("connect：启动 HYSYS.Application",
                    lambda: win32.Dispatch("HYSYS.Application"))
+    # COM 驱动的 HYSYS 默认无窗口（Visible=False）。置为可见，
+    # 便于演示时实时观察建模过程；失败不影响建模本身。
+    try:
+        _app.Visible = True
+    except Exception:
+        pass
     return _app
+
+
+def show_case(case):
+    """求解结束后把 case 文档窗口显示并置前（演示用）。
+
+    注意：只能在求解完成后调用。实测建模期间就 case.Visible=True +
+    Activate() 会让求解器卡在 IsSolving=True 直至超时（GUI 文档窗口
+    需要 STA 消息泵，而建模线程被同步 COM 调用占住）。
+    失败静默，不影响建模结果。"""
+    try:
+        case.Visible = True
+        case.Activate()
+    except Exception:
+        pass
 
 
 def close_all_cases():
@@ -159,14 +181,126 @@ def create_case(property_package="Peng-Robinson", save_as=None):
 
 
 # ---------------------------------------------------------------------------
-# 组分
+# 组分解析（Simulation Name 别名 + 分子量读回校验）
 # ---------------------------------------------------------------------------
+#
+# 实测坑：HYSYS 组分的 Simulation Name 与 Full Name 不同
+# （乙苯 Full Name=EthylBenzene，Simulation Name=E-Benzene）；且 synonym
+# 模糊匹配会误配（Styrene 的 Synonym 含 EthylBenzene）。
+# 因此：canonical 名 Add 失败 -> 查别名表用 Simulation Name Add ->
+# 成功后必须按分子式分子量读回校验（相对偏差 >2% 判误配）。
+
+ALIAS_FILE = os.path.join(PROJECT_ROOT, "data", "component_aliases.json")
+
+# 标准原子量（算分子式分子量用；与 HYSYS 内部值可能有 <0.1% 差异，
+# 校验阈值取 2%，足够区分同分异构/误配如 C8H10=106.17 vs C8H8=104.15）
+ATOMIC_WEIGHTS = {"C": 12.011, "H": 1.008, "O": 15.999, "N": 14.007,
+                  "S": 32.06, "Cl": 35.45, "F": 18.998, "Br": 79.904}
+
+_alias_cache = None
 
 
-def add_components(case, names):
-    """在 Basis 变更事务内逐个添加组分；失败时打印组分库相近名称。
+def load_aliases(path=None):
+    """加载 canonical -> {sim_name, formula} 别名表（模块级缓存）。"""
+    global _alias_cache
+    if path is not None or _alias_cache is None:
+        p = path or ALIAS_FILE
+        with open(p, "r", encoding="utf-8") as f:
+            data = {k: v for k, v in json.load(f).items()
+                    if not k.startswith("_")}
+        if path is None:
+            _alias_cache = data
+        return data
+    return _alias_cache
 
-    返回按 HYSYS 顺序排列的组分名元组（后续组成数组按下标对应）。
+
+def formula_molecular_weight(formula):
+    """按分子式（如 'C8H10'）计算分子量 kg/kmol。"""
+    total = 0.0
+    for elem, count in re.findall(r"([A-Z][a-z]?)(\d*)", formula):
+        w = ATOMIC_WEIGHTS.get(elem)
+        if w is None:
+            _context_fail("formula_molecular_weight",
+                          "分子式 %r 含未知元素 %r" % (formula, elem))
+        total += w * (int(count) if count else 1)
+    if total <= 0:
+        _context_fail("formula_molecular_weight", "分子式 %r 解析为空" % formula)
+    return total
+
+
+def resolve_component(components, name, aliases=None, records=None):
+    """把 canonical/别名解析为实际加入的组分名，带分子量读回校验。
+
+    components: HYSYS ComponentList 的 Components 集合对象
+    返回实际 Simulation Name。aliases 为 None 时加载 data/component_aliases.json。
+    records 为可选 list，追加解析记录（含表外组分的名称+分子量）。
+    """
+    aliases = load_aliases() if aliases is None else aliases
+    entry = aliases.get(name)
+    existing = set(components.Names)
+
+    actual = None
+    if name in existing:
+        actual = name
+    else:
+        try:
+            components.Add(name)
+            actual = name
+        except Exception as first_exc:
+            if entry:
+                sim = entry["sim_name"]
+                if sim in existing:
+                    actual = sim
+                else:
+                    try:
+                        components.Add(sim)
+                        actual = sim
+                    except Exception as exc:
+                        _context_fail(
+                            "resolve_component",
+                            "组分 %r 添加失败：canonical 名报错（%s），"
+                            "Simulation Name %r 也报错（%s: %s）"
+                            % (name, first_exc, sim, type(exc).__name__, exc))
+            else:
+                suggestion = difflib.get_close_matches(
+                    name, KNOWN_LIBRARY_COMPONENTS, n=5, cutoff=0.4)
+                hint = ("组分库中与之相近的名称：%s" % ", ".join(suggestion)
+                        if suggestion else "未找到相近名称")
+                _context_fail(
+                    "resolve_component",
+                    "组分 %r 添加失败（%s: %s）。别名表中无此组分；%s"
+                    % (name, type(first_exc).__name__, first_exc, hint))
+
+    # 读回校验：表内组分按分子式分子量比对（>2% 判误配）；
+    # 表外组分也读回分子量做记录
+    comp = components.Item(actual)
+    mw_hysys = float(comp.MolecularWeightValue)
+    formula_hysys = str(comp.Formula).strip()
+    if entry:
+        # 误配判定双条件（实测：C8H10=106.17 vs C8H8=104.15 仅差 1.9%，
+        # 单靠 2% 分子量阈值会漏判乙苯->苯乙烯误配，故分子式不符即判误配）：
+        #  a) 分子式不一致 -> 误配；b) 分子式相同但分子量偏差 >1% -> 误配
+        formula_ok = (formula_hysys.upper().replace(" ", "")
+                      == entry["formula"].upper())
+        mw_calc = formula_molecular_weight(entry["formula"])
+        mw_dev = abs(mw_hysys - mw_calc) / mw_calc
+        if not formula_ok or mw_dev > 0.01:
+            _context_fail(
+                "resolve_component",
+                "组分误配：请求 %s(%s, %.2f) 实得 %s(%s, %.2f)"
+                % (name, entry["formula"], mw_calc,
+                   actual, formula_hysys, mw_hysys))
+    if records is not None:
+        records.append({"requested": name, "actual": actual,
+                        "formula": formula_hysys, "mw": mw_hysys,
+                        "in_alias_table": bool(entry)})
+    return actual
+
+
+def add_components_resolved(case, names, records=None):
+    """同 add_components，但经 resolve_component 解析别名。
+
+    返回 (实际组分名元组, {请求名: 实际名} 映射)。
     """
     if not names:
         _context_fail("add_components", "组分列表为空")
@@ -174,36 +308,26 @@ def add_components(case, names):
     if not com("add_components：读取 IsChangingBasis",
                lambda: bm.IsChangingBasis):
         com("add_components：进入 Basis 变更模式", lambda: bm.StartBasisChange())
-
     components = com("add_components：获取组分列表",
                      lambda: bm.ComponentLists.Item(0).Components)
-    existing = set(com("add_components：读取现有组分", lambda: components.Names))
 
     def _rollback_then_fail(detail):
-        # 实测：CanEndBasisChange=False 时 EndBasisChange 等价于取消本次变更，
-        # 可退出变更模式（IsChangingBasis 回到 False），case 继续可用。
         try:
             bm.EndBasisChange()
         except Exception:
             pass
         _context_fail("add_components", detail)
 
+    mapping = {}
     for name in names:
-        if name in existing:
-            continue
         try:
-            components.Add(name)
+            mapping[name] = resolve_component(components, name,
+                                              records=records)
         except Exception as exc:
-            suggestion = difflib.get_close_matches(
-                name, KNOWN_LIBRARY_COMPONENTS, n=5, cutoff=0.4)
-            hint = ("组分库中与之相近的名称：%s" % ", ".join(suggestion)
-                    if suggestion else "未找到相近名称，请查阅 HYSYS 组分库")
-            _rollback_then_fail(
-                "添加组分 %r 失败（%s: %s）。组分名必须是 HYSYS 库名；%s"
-                % (name, type(exc).__name__, exc, hint))
+            _rollback_then_fail(str(exc))
 
     current = tuple(com("add_components：读取组分", lambda: components.Names))
-    missing = [n for n in names if n not in current]
+    missing = [a for a in mapping.values() if a not in current]
     if missing:
         _rollback_then_fail("以下组分添加后仍未出现：%s" % missing)
 
@@ -212,6 +336,15 @@ def add_components(case, names):
         com("add_components：提交 Basis 变更", lambda: bm.EndBasisChange())
     else:
         _rollback_then_fail("CanEndBasisChange=False，物性包/组分信息不完整")
+    return current, mapping
+
+
+def add_components(case, names):
+    """在 Basis 变更事务内添加组分（自动别名解析 + 分子量校验）。
+
+    返回按 HYSYS 顺序排列的实际组分名元组（组成数组按下标对应）。
+    """
+    current, _mapping = add_components_resolved(case, names)
     return current
 
 

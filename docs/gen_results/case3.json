@@ -1,0 +1,56 @@
+{
+  "id": 3,
+  "prompt": "模拟乙苯脱氢制苯乙烯：C6H5C2H5 <-> C6H5C2H3 + H2，可逆反应，进料620℃、1.2 bar，无动力学数据，反应器出口650℃，求产物分布",
+  "expected": [
+    "equilibrium"
+  ],
+  "note": "可逆、无动力学、无转化率，受化学平衡控制",
+  "parse_error": null,
+  "spec": {
+    "reactor_type": "equilibrium",
+    "selection_reason": "乙苯脱氢制苯乙烯为可逆吸热反应，用户明确给出可逆反应方程式且无动力学数据、无转化率数据，反应受化学平衡控制，故选用平衡反应器（equilibrium）；不选 conversion 因未给转化率，不选 gibbs 因反应方程式明确可枚举，不选 pfr/cstr 因无动力学参数。",
+    "components": [
+      "Ethylbenzene",
+      "Styrene",
+      "Hydrogen"
+    ],
+    "reactions": [
+      {
+        "name": "乙苯脱氢",
+        "equation": "C6H5C2H5 <-> C6H5C2H3 + H2",
+        "stoichiometry": {
+          "Ethylbenzene": -1,
+          "Styrene": 1,
+          "Hydrogen": 1
+        },
+        "type": "equilibrium",
+        "conversion": null,
+        "basis_component": null
+      }
+    ],
+    "feed": {
+      "T_C": 620,
+      "P_bar": 1.2,
+      "flow": 1000,
+      "flow_unit": "kgmole/h",
+      "flow_basis": "total",
+      "composition": {
+        "Ethylbenzene": 1.0
+      }
+    },
+    "outlet_spec": {
+      "T_C": 650,
+      "P_bar": 1.2
+    },
+    "missing_info": [],
+    "assumptions": [
+      "进料组成未明确给出，假设为纯乙苯进料（摩尔分率 1.0）",
+      "进料流量未给出，假设总流量 1000 kgmole/h，该假设不影响摩尔分率与绝热温度等结果",
+      "出口压力未给出，假设等于进料压力 1.2 bar（压降为 0）",
+      "反应器出口温度 650 °C 作为出口规格给定，采用平衡反应器并设定出口温度"
+    ]
+  },
+  "build_error": "HysysError: [add_components] 添加组分 'Ethylbenzene' 失败（com_error: (-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2147467259), None)）。组分名必须是 HYSYS 库名；组分库中与之相近的名称：Ethylbenzene, Ethylene, Benzene, Ethane, p-Xylene",
+  "result": null,
+  "elapsed_s": 4.2
+}

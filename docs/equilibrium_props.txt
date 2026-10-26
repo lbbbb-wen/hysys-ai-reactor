@@ -1,0 +1,39 @@
+EquilibriumReactorOp 热负荷相关属性诊断（求解后）
+============================================================
+
+[EquilibriumReactorOp 实例]
+  DutyControlValve = <callable>
+  EnergyStream = <callable>
+  EnergyStreamVar = <callable>
+  HeatFlow = <callable>
+  HeatFlowValue = 11275.418519754865
+  HeatOfReaction = <callable>
+  HeatOfReactionValue = (206124.0,)
+
+[EnergyStream 实例]
+  GenerateHeatCurves = <callable>
+  HeatFlow = <callable>
+  HeatFlowValue = 11275.418519754865
+  HeatOfVap = <callable>
+  HeatOfVapValue -> EXC (-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2147467259), None)
+  HigherHeatValue = <callable>
+  HigherHeatValueValue -> EXC (-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2147467259), None)
+  IsEnergyStream = True
+  LowerHeatValue = <callable>
+  LowerHeatValueValue -> EXC (-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2147467259), None)
+  MassHeatCapacity = <callable>
+  MassHeatCapacityValue -> EXC (-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2147467259), None)
+  MassHeatOfVap = <callable>
+  MassHeatOfVapValue -> EXC (-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2147467259), None)
+  MassHigherHeatValue = <callable>
+  MassHigherHeatValueValue -> EXC (-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2147467259), None)
+  MassLowerHeatValue = <callable>
+  MassLowerHeatValueValue -> EXC (-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2147467259), None)
+  MolarHeatCapacity = <callable>
+  MolarHeatCapacityValue -> EXC (-2147352567, 'Exception occurred.', (0, None, None, None, 0, -2147467259), None)
+
+[EnergyStream.HeatFlow.GetValue 各单位]
+  GetValue(kJ/h) = 40591506.671117514
+  GetValue(kJ/s) = 11275.418519754865
+  GetValue(kW) = 11275.418519754865
+  GetValue(MW) = 11.275418519754865
